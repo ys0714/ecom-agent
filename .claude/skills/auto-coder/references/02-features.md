@@ -638,42 +638,67 @@ function generateExplanation(ctx: ExplanationContext): {
 
 **关键原则**（FIRE 论文）：解释必须**忠实于覆盖率算法的实际计算结果**，不能让 LLM 自由编造。每个特征的匹配度直接来自 `computeCoverage()` 的输出。
 
-#### 2.2.10 对话偏好覆写与置信度仲裁
+#### 2.2.10 对话偏好覆写与置信度仲裁（混合方案）
 
 > 参考 ContraSolver（偏好图）、AWARE-US（约束放松）、ACL 2020（用户记忆图）。
-> 详细调研见 `.claude/skills/tech-researcher/references/profile-explainability-and-conflict.md`。
+> 方案决策调研见 `.claude/skills/tech-researcher/references/confidence-arbitration-model-hybrid.md`。
 
-对话中用户可能表达与画像不一致的偏好。系统采用**规则识别 + 置信度打分仲裁**的双层机制：先用确定性规则识别覆写类型，再用置信度决定是否采纳。
+对话中用户可能表达与画像不一致的偏好。系统采用**规则快速路径 + LLM 深度路径**的混合方案：高确定性信号走规则（零延迟），低确定性/隐式偏好走模型（语义理解）。
 
-**覆写类型与识别规则**：
+**混合路由架构**：
 
-| 覆写类型 | 触发关键词 | 处理策略 | 置信度影响 |
-|---------|-----------|---------|-----------|
-| **明确纠正** | "我要L码"、"不要M"、"换个尺码" | 本次推荐锁定用户指定规格 | 覆写置信度 = 1.0（最高优先） |
-| **为他人购买** | "帮我老公买"、"给孩子选"、"帮朋友看看" | 切换到对应性别角色画像 | 临时画像置信度 = 0.4（建议核实） |
-| **主观偏好** | "要宽松的"、"要修身的"、"偏大一码" | 匹配参数向大/小一码偏移 | 偏好修饰置信度 = 0.6 |
-| **画像纠正** | "我现在165cm"、"我体重110斤" | applyDelta() 更新画像 | 对话来源置信度 = 0.7 |
-| **无覆写** | 正常对话 | 使用原始画像匹配 | 使用画像原始置信度 |
+```
+            用户消息
+               │
+    ┌──────────┴──────────┐
+    ▼                     ▼
+ 规则快速路径          LLM 深度路径
+ (PreferenceDetector)  (ModelPreferenceAnalyzer)
+ 延迟: 0ms             延迟: ~200ms
+    │                     │
+    ▼                     ▼
+ 匹配到明确信号？       返回 LLMPreferenceSignal
+ YES → 直接用规则结果    (含语义置信度 + scope + subject)
+ NO  → 调用模型路径
+    │                     │
+    └──────────┬──────────┘
+               ▼
+      ConfidenceArbitrator
+      (数值仲裁逻辑不变)
+```
 
-**置信度打分仲裁**：
+**规则快速路径**（零延迟，处理高确定性信号）：
 
-当对话覆写与画像存量数据冲突时（如画像 M 码 vs 用户说 L 码），通过置信度决定优先级：
+| 覆写类型 | 触发关键词 | 置信度 |
+|---------|-----------|--------|
+| **明确纠正** | "我要L码"、"不要M" | 1.0 |
+| **为他人购买** | "帮我老公买"、"给孩子选" | 0.4 |
+| **主观偏好** | "要宽松的"、"修身款" | 0.6 |
+| **画像纠正** | "我身高165cm"、"体重110斤" | 0.7 |
+
+**LLM 深度路径**（规则未匹配时触发，处理隐式/模糊信号）：
 
 ```typescript
-interface PreferenceSignal {
-  type: 'explicit_override' | 'role_switch' | 'fit_modifier' | 'profile_correction' | 'none';
-  value: Record<string, unknown>;
-  confidence: number;               // 0~1
-  source: 'conversation';
-  turnIndex: number;
+interface LLMPreferenceSignal extends PreferenceSignal {
+  scope: 'this_turn' | 'session' | 'permanent';
+  subject: 'self' | 'other';
+  reasoning: string;
 }
+```
 
-// 仲裁规则：对话信号 vs 画像存量
+模型能识别规则无法覆盖的场景：
+- 隐式偏好："这件太小了" → `fit_modifier`，confidence 由模型根据语境打分
+- 主体判断："我朋友165cm帮看看" → `role_switch` + `subject: 'other'`（规则会误判为自己）
+- 范围判断："一般穿M码" → `scope: 'permanent'` vs "这件想试试L" → `scope: 'this_turn'`
+
+**置信度打分仲裁**（两条路径共用同一仲裁器）：
+
+```typescript
 function arbitrate(existing: number, incoming: PreferenceSignal): 'accept' | 'merge' | 'ignore' {
-  if (incoming.type === 'explicit_override') return 'accept';     // 明确纠正，直接采纳
-  if (incoming.confidence > existing * 1.2) return 'accept';      // 新信号显著强于旧信号
-  if (incoming.confidence > existing * 0.8) return 'merge';       // 接近，合并考虑
-  return 'ignore';                                                 // 新信号太弱，忽略
+  if (incoming.type === 'explicit_override') return 'accept';
+  if (incoming.confidence > existing * 1.2) return 'accept';
+  if (incoming.confidence > existing * 0.8) return 'merge';
+  return 'ignore';
 }
 ```
 
@@ -683,14 +708,15 @@ function arbitrate(existing: number, incoming: PreferenceSignal): 'accept' | 'me
 |------|-----------|------|
 | `order_history`（5+ 单） | 0.9 | 多次购买验证 |
 | `order_history`（1-4 单） | 0.6 | 少量样本 |
-| `explicit_override`（对话中明确指定） | 1.0 | 最高优先 |
-| `profile_correction`（对话中纠正画像） | 0.7 | 可能不准但应尊重 |
-| `fit_modifier`（宽松/修身偏好） | 0.6 | 主观偏好 |
-| `role_switch`（为他人购买） | 0.4 | 临时画像，信息不完整 |
+| `explicit_override`（明确指定） | 1.0 | 最高优先 |
+| `profile_correction`（纠正画像） | 0.7 | 应尊重 |
+| `fit_modifier`（宽松/修身） | 0.6（规则）/ 模型动态打分 | 主观偏好 |
+| `role_switch`（为他人购买） | 0.4（规则）/ 模型动态打分 | 临时画像 |
+| LLM 深度路径输出 | 模型动态打分 0~1 | 基于对话上下文语义 |
 
 **用户反馈闭环**：
-- 用户接受推荐 → 该维度置信度 +0.1（正反馈强化）
-- 用户修改规格后下单 → 触发 BadCase 信号 + 降低对应维度置信度 -0.1
+- 用户接受推荐 → 该维度置信度 +0.1
+- 用户修改规格后下单 → BadCase 信号 + 置信度 -0.1
 - 用户明确纠正 → 直接覆写，无需仲裁
 
 ### 2.3 会话记忆与上下文管理

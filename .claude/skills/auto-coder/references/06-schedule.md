@@ -110,16 +110,19 @@
 | P8-4 | SessionManager + JSONL 会话持久化 | ✅ | `application/services/session-manager.ts` |
 | P8-5 | 端到端闭环集成测试 | ✅ | `tests/e2e/last-mile.test.ts` |
 
-### Phase 9：推荐解释性 + 对话偏好仲裁
+### Phase 9：推荐解释性 + 对话偏好仲裁（混合方案）
 
-> **交付物**：三层结构化解释 + 对话偏好覆写（明确纠正/角色切换/主观偏好/画像纠正）+ 置信度打分仲裁。
+> **交付物**：三层结构化解释 + 规则快速路径 + LLM 深度路径 + 置信度打分仲裁。
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P9-1 | done | ✅ | `services/profile-engine/explanation-generator.ts` |
-| P9-2 | done | ✅ | `services/profile-engine/preference-detector.ts` |
-| P9-3 | done | ✅ | `services/profile-engine/confidence-arbitrator.ts` |
-| P9-4 | done | ✅ | `application/agent.ts` |
-| P9-5 | done | ✅ | `tests/application/explanation.test.ts`, `tests/application/preference.test.ts` |
+| P9-1 | ExplanationGenerator（三层结构化解释） | ✅ | `services/profile-engine/explanation-generator.ts` |
+| P9-2 | PreferenceDetector 规则快速路径（4 种覆写类型识别） | ✅ | `services/profile-engine/preference-detector.ts` |
+| P9-3 | ConfidenceArbitrator（置信度打分仲裁） | ✅ | `services/profile-engine/confidence-arbitrator.ts` |
+| P9-4 | Agent 集成（解释+覆写+仲裁接入主循环） | ✅ | `application/agent.ts` |
+| P9-5 | 规则路径测试（解释质量+覆写识别+仲裁决策） | ✅ | `tests/application/explanation.test.ts`, `tests/application/preference.test.ts` |
+| P9-6 | done | ✅ | `services/profile-engine/model-preference-analyzer.ts` |
+| P9-7 | done | ✅ | `services/profile-engine/preference-detector.ts` |
+| P9-8 | done | ✅ | `tests/application/preference-hybrid.test.ts` |
 
 ---
