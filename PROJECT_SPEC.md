@@ -647,40 +647,103 @@ interface HealthStatus {
   EventBus.publish('model:inference')
 ```
 
-#### 2.2.9 对话场景中的默选规格呈现
+#### 2.2.9 推荐解释性（三层结构化解释）
 
-在客服 Agent 对话场景中，默选规格推荐结果不再仅停留在提单页的静默默选，而是通过**对话交互主动呈现**给用户，提升推荐透明度和信任感。
+> 参考 FIRE（arxiv 2025，SHAP 忠实解释）、Amazon Fashion（社会证明）、Sizebay 行业数据（33% 购物者因尺码不确定放弃购物车）。
+> 详细调研见 `.claude/skills/tech-researcher/references/profile-explainability-and-conflict.md`。
 
-**呈现时机**：当 `ProductConsultWorkflow` 检测到用户正在咨询具体商品时，自动触发规格推荐：
+推荐解释采用**三层结构**，每层职责明确：
 
+| 层级 | 职责 | 来源 |
+|------|------|------|
+| **结论层** | 一句话推荐结论 | 覆盖率算法输出 |
+| **依据层** | 用户画像锚点 + 商品规格 + 匹配关系 | 画像数据 + 商品数据 + 特征覆盖率 |
+| **信心层** | 根据置信度调整语气（高/中/低） | `profileCompleteness` + `recommendation.confidence` |
+
+**解释生成接口**：
+
+```typescript
+interface ExplanationContext {
+  profile: GenderSpecProfile;         // 用户画像
+  productSpec: ProductSpecProfile;    // 命中的商品规格
+  matchResult: SpecMatchResult;       // 覆盖率详情
+  confidence: number;                 // 综合置信度
+  orderCount: number;                 // 支撑订单数
+  isTemporaryProfile: boolean;        // 是否为临时画像（为他人购买）
+}
+
+function generateExplanation(ctx: ExplanationContext): {
+  conclusion: string;   // "这款羽绒服推荐 M 码"
+  reasoning: string;    // "您近期购买的女装多为 M 码（身高 160-170cm...），该商品 M 码适合..."
+  caveat: string;       // "如果您近期体型有变化，可以告诉我调整" 或 ""
+}
 ```
-用户：我想看看这件羽绒服，哪个尺码适合我？
 
-Agent：
-  1. SpecInferenceEngine.infer(profile, product)
-     → 覆盖率匹配：身高 [160, 170] × 体重 [105, 115]
-     → 命中规格：L码（覆盖率 87%）
+**信心层策略**：
 
-  2. 回复（含推荐理由）：
-     "根据您的购买记录，您通常穿 M-L 码（身高约 160-170cm，体重约 105-115斤），
-      这款羽绒服推荐您选择【L码】，适合身高 160-170cm、体重 100-120斤。
-      如果您近期体型有变化，也可以告诉我帮您重新推荐。"
+| 置信度 | 语气 | 示例 |
+|--------|------|------|
+| 高（≥ 0.7） | 直接推荐，不加修饰 | — |
+| 中（0.3~0.7） | 推荐 + 轻微确认 | "如果您近期体型有变化，可以告诉我调整" |
+| 低（< 0.3） | 不推荐，主动询问 | "请问您的身高体重大概是多少？" |
+| 临时画像 | 推荐 + 建议核实 | "由于是首次为他选购，建议参考商品详情页确认" |
+
+**关键原则**（FIRE 论文）：解释必须**忠实于覆盖率算法的实际计算结果**，不能让 LLM 自由编造。每个特征的匹配度直接来自 `computeCoverage()` 的输出。
+
+#### 2.2.10 对话偏好覆写与置信度仲裁
+
+> 参考 ContraSolver（偏好图）、AWARE-US（约束放松）、ACL 2020（用户记忆图）。
+> 详细调研见 `.claude/skills/tech-researcher/references/profile-explainability-and-conflict.md`。
+
+对话中用户可能表达与画像不一致的偏好。系统采用**规则识别 + 置信度打分仲裁**的双层机制：先用确定性规则识别覆写类型，再用置信度决定是否采纳。
+
+**覆写类型与识别规则**：
+
+| 覆写类型 | 触发关键词 | 处理策略 | 置信度影响 |
+|---------|-----------|---------|-----------|
+| **明确纠正** | "我要L码"、"不要M"、"换个尺码" | 本次推荐锁定用户指定规格 | 覆写置信度 = 1.0（最高优先） |
+| **为他人购买** | "帮我老公买"、"给孩子选"、"帮朋友看看" | 切换到对应性别角色画像 | 临时画像置信度 = 0.4（建议核实） |
+| **主观偏好** | "要宽松的"、"要修身的"、"偏大一码" | 匹配参数向大/小一码偏移 | 偏好修饰置信度 = 0.6 |
+| **画像纠正** | "我现在165cm"、"我体重110斤" | applyDelta() 更新画像 | 对话来源置信度 = 0.7 |
+| **无覆写** | 正常对话 | 使用原始画像匹配 | 使用画像原始置信度 |
+
+**置信度打分仲裁**：
+
+当对话覆写与画像存量数据冲突时（如画像 M 码 vs 用户说 L 码），通过置信度决定优先级：
+
+```typescript
+interface PreferenceSignal {
+  type: 'explicit_override' | 'role_switch' | 'fit_modifier' | 'profile_correction' | 'none';
+  value: Record<string, unknown>;
+  confidence: number;               // 0~1
+  source: 'conversation';
+  turnIndex: number;
+}
+
+// 仲裁规则：对话信号 vs 画像存量
+function arbitrate(existing: number, incoming: PreferenceSignal): 'accept' | 'merge' | 'ignore' {
+  if (incoming.type === 'explicit_override') return 'accept';     // 明确纠正，直接采纳
+  if (incoming.confidence > existing * 1.2) return 'accept';      // 新信号显著强于旧信号
+  if (incoming.confidence > existing * 0.8) return 'merge';       // 接近，合并考虑
+  return 'ignore';                                                 // 新信号太弱，忽略
+}
 ```
 
-**呈现策略**：
+**数据源置信度基准**：
 
-| 画像置信度 | 呈现方式 | 示例 |
-|-----------|---------|------|
-| **高（≥ 0.7）** | 主动推荐 + 简要理由 | "根据您的历史购买，推荐 L 码" |
-| **中（0.3~0.7）** | 推荐 + 确认询问 | "您之前买的多是 M 码，这款建议 M 码，您看合适吗？" |
-| **低（< 0.3，冷启动）** | 不推荐，主动询问 | "请问您的身高体重大概是多少？方便我帮您推荐合适的尺码" |
-
-**推荐理由生成**：通过 `UserProfileEntity.summarizeForPrompt()` 生成画像摘要注入 System Prompt。Prompt 中的条件分支根据 `profileCompleteness` 动态决定是"主动推荐"还是"引导询问"（见 2.3.2 Prompt 拼接示例）。
+| 来源 | 基础置信度 | 说明 |
+|------|-----------|------|
+| `order_history`（5+ 单） | 0.9 | 多次购买验证 |
+| `order_history`（1-4 单） | 0.6 | 少量样本 |
+| `explicit_override`（对话中明确指定） | 1.0 | 最高优先 |
+| `profile_correction`（对话中纠正画像） | 0.7 | 可能不准但应尊重 |
+| `fit_modifier`（宽松/修身偏好） | 0.6 | 主观偏好 |
+| `role_switch`（为他人购买） | 0.4 | 临时画像，信息不完整 |
 
 **用户反馈闭环**：
-- 用户接受推荐 → 画像对应维度置信度 +0.1
-- 用户修改规格后下单 → 触发 BadCase 信号（`规格退回`，权重 0.8）
-- 用户在对话中纠正 → `ConversationProfileUpdater` 提取新偏好信号，进入仲裁流程
+- 用户接受推荐 → 该维度置信度 +0.1（正反馈强化）
+- 用户修改规格后下单 → 触发 BadCase 信号 + 降低对应维度置信度 -0.1
+- 用户明确纠正 → 直接覆写，无需仲裁
 
 ### 2.3 会话记忆与上下文管理
 
@@ -1766,6 +1829,18 @@ sdk.start();
 | P8-3 | CLI 接通真实画像构建流程 | ✅ | `presentation/cli/agent-cli.ts` |
 | P8-4 | SessionManager + JSONL 会话持久化 | ✅ | `application/services/session-manager.ts` |
 | P8-5 | 端到端闭环集成测试 | ✅ | `tests/e2e/last-mile.test.ts` |
+
+### Phase 9：推荐解释性 + 对话偏好仲裁
+
+> **交付物**：三层结构化解释 + 对话偏好覆写（明确纠正/角色切换/主观偏好/画像纠正）+ 置信度打分仲裁。
+
+| 模块 | 任务 | 状态 | 关键文件 |
+|------|------|------|---------|
+| P9-1 | ExplanationGenerator（三层结构化解释：结论层+依据层+信心层） | 📋 | `services/profile-engine/explanation-generator.ts` |
+| P9-2 | PreferenceDetector（对话覆写类型识别：明确纠正/角色切换/主观偏好/画像纠正） | 📋 | `services/profile-engine/preference-detector.ts` |
+| P9-3 | ConfidenceArbitrator（置信度打分仲裁：对话信号 vs 画像存量） | 📋 | `services/profile-engine/confidence-arbitrator.ts` |
+| P9-4 | Agent 集成（解释注入回复 + 覆写检测接入主循环 + 仲裁结果影响推荐） | 📋 | `application/agent.ts` |
+| P9-5 | 单元测试 + 集成测试（解释质量 + 覆写场景 + 仲裁决策 + 端到端） | 📋 | `tests/application/explanation.test.ts`, `tests/application/preference.test.ts` |
 
 ---
 
