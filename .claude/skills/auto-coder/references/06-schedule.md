@@ -13,7 +13,7 @@
 | M1-1 | 项目初始化、TypeScript 配置、ESM 模块、依赖管理（fastify, neverthrow, cockatiel, @opentelemetry/*） | ✅ | `package.json`, `tsconfig.json` |
 | M1-2 | Domain 层核心类型定义（UserProfile, SpecScore, ModelSlot, WorkflowType 等） | ✅ | `domain/types.ts` |
 | M1-3 | UserProfileEntity 领域实体（applyDelta, summarizeForPrompt，**不含**冲突仲裁） | ✅ | `domain/entities/user-profile.entity.ts` |
-| M1-4 | 硬编码覆盖率匹配算法（用户画像 × 商品画像 → 最优规格） | 📋 | `services/profile-engine/spec-inference.ts` |
+| M1-4 | 硬编码覆盖率匹配算法（用户画像 × 商品画像 → 最优规格） | ✅ | `services/profile-engine/spec-inference.ts` |
 | M1-5 | 简单 CLI 对话循环（stdin/stdout，单模型调用，滑动窗口 K=10） | 📋 | `presentation/cli/agent-cli.ts` |
 | M1-6 | OpenAI-compatible LLM 客户端封装 | 📋 | `infra/adapters/llm.ts` |
 | M1-7 | 基本 EventBus（发布-订阅，无分级，仅日志 Subscriber） | 📋 | `domain/event-bus.ts` |
