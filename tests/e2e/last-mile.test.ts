@@ -61,7 +61,7 @@ describe('Last Mile Integration: end-to-end recommendation flow', () => {
     expect(body.recommendation).not.toBeNull();
     expect(body.recommendation.matchMethod).toBe('coverage');
     expect(body.recommendation.selectedSpecs).toHaveProperty('size');
-    expect(body.reply).toContain('规格推荐');
+    expect(body.reply).toContain('推荐');
   });
 
   it('persists session to JSONL after conversation', async () => {

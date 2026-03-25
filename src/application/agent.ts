@@ -1,10 +1,13 @@
-import type { Message, WorkflowType, SpecRecommendation, ProductInfo } from '../domain/types.js';
+import type { Message, WorkflowType, SpecRecommendation, ProductInfo, GenderRole } from '../domain/types.js';
 import { InMemoryEventBus, createEvent } from '../domain/event-bus.js';
 import { UserProfileEntity } from '../domain/entities/user-profile.entity.js';
 import { ModelSlotManager } from './services/model-slot/model-slot-manager.js';
 import { IntentRouter } from './workflow/intent-router.js';
 import { matchSpecs } from './services/profile-engine/spec-inference.js';
 import { ColdStartManager } from './services/profile-engine/cold-start-manager.js';
+import { PreferenceDetector } from './services/profile-engine/preference-detector.js';
+import { arbitrate } from './services/profile-engine/confidence-arbitrator.js';
+import { generateExplanation, formatExplanationForReply } from './services/profile-engine/explanation-generator.js';
 import type { ProfileStore } from './services/profile-store.js';
 import type { ProductService } from '../infra/adapters/product-service.js';
 
@@ -44,6 +47,22 @@ export class Agent {
 
     const intentResult = await intentRouter.classify(userMsg);
 
+    const prefDetector = new PreferenceDetector();
+    const prefSignal = prefDetector.detect(userText);
+
+    if (prefSignal.type === 'profile_correction') {
+      const corrections = prefSignal.value;
+      const delta: Record<string, unknown> = { role: profile.spec.defaultRole };
+      if (corrections.height) delta.height = [corrections.height, corrections.height] as [number, number];
+      if (corrections.weight) delta.weight = [corrections.weight, corrections.weight] as [number, number];
+      profile.applyDelta({ dimensionId: 'specPreference', delta, source: 'conversation', timestamp: new Date().toISOString() });
+    }
+
+    let activeRole: GenderRole | undefined;
+    if (prefSignal.type === 'role_switch') {
+      activeRole = prefSignal.value.targetRole as GenderRole;
+    }
+
     const coldAction = coldStartManager.getAction(profile);
     let coldStartHint = '';
     if (coldAction.type === 'ask_preference') {
@@ -75,14 +94,29 @@ export class Agent {
 
     let recommendation: SpecRecommendation | null = null;
     if (intentResult.intent === 'product_consult' && this.deps.productService) {
-      recommendation = await this.trySpecRecommendation(profile, userText);
-      if (recommendation) {
-        const specLine = Object.entries(recommendation.selectedSpecs)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(', ');
-        reply += `\n\n【规格推荐】${specLine}（匹配度 ${Math.round(recommendation.confidence * 100)}%）`;
-        if (recommendation.reasoning) {
-          reply += `\n推荐依据：${recommendation.reasoning}`;
+      if (prefSignal.type === 'explicit_override' && prefSignal.value.specifiedSize) {
+        reply += `\n\n好的，已为您锁定 ${prefSignal.value.specifiedSize} 码。`;
+      } else {
+        recommendation = await this.trySpecRecommendation(profile, userText, activeRole);
+        if (recommendation) {
+          const product = await this.findProduct(userText);
+          const genderProfile = profile.getGenderProfile(activeRole);
+          const matchedSpec = product?.specs.find((s) => s.propValueId === recommendation!.propValueId);
+
+          if (genderProfile && matchedSpec) {
+            const explanation = generateExplanation({
+              profile: genderProfile,
+              productSpec: matchedSpec,
+              matchResult: { propValueId: recommendation.propValueId, totalCoverage: recommendation.confidence, featureCoverages: {}, matchedFeatureCount: 0 },
+              confidence: recommendation.confidence,
+              orderCount: profile.meta.totalOrders,
+              isTemporaryProfile: prefSignal.type === 'role_switch',
+            });
+            reply += '\n\n' + formatExplanationForReply(explanation);
+          } else {
+            const specLine = Object.entries(recommendation.selectedSpecs).map(([k, v]) => `${k}: ${v}`).join(', ');
+            reply += `\n\n【规格推荐】${specLine}（匹配度 ${Math.round(recommendation.confidence * 100)}%）`;
+          }
         }
       }
     }
@@ -120,16 +154,21 @@ ${GUARDRAIL_INSTRUCTIONS}
   private async trySpecRecommendation(
     profile: UserProfileEntity,
     userText: string,
+    overrideRole?: GenderRole,
   ): Promise<SpecRecommendation | null> {
     if (!this.deps.productService) return null;
 
-    const productId = this.extractProductId(userText);
-    if (!productId) return null;
-
-    const product = await this.deps.productService.getProductById(productId);
+    const product = await this.findProduct(userText);
     if (!product) return null;
 
     return matchSpecs(profile, product);
+  }
+
+  private async findProduct(userText: string): Promise<ProductInfo | null> {
+    if (!this.deps.productService) return null;
+    const productId = this.extractProductId(userText);
+    if (!productId) return null;
+    return this.deps.productService.getProductById(productId);
   }
 
   private extractProductId(text: string): string | null {

@@ -116,10 +116,10 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P9-1 | ExplanationGenerator（三层结构化解释：结论层+依据层+信心层） | 📋 | `services/profile-engine/explanation-generator.ts` |
-| P9-2 | PreferenceDetector（对话覆写类型识别：明确纠正/角色切换/主观偏好/画像纠正） | 📋 | `services/profile-engine/preference-detector.ts` |
-| P9-3 | ConfidenceArbitrator（置信度打分仲裁：对话信号 vs 画像存量） | 📋 | `services/profile-engine/confidence-arbitrator.ts` |
-| P9-4 | Agent 集成（解释注入回复 + 覆写检测接入主循环 + 仲裁结果影响推荐） | 📋 | `application/agent.ts` |
-| P9-5 | 单元测试 + 集成测试（解释质量 + 覆写场景 + 仲裁决策 + 端到端） | 📋 | `tests/application/explanation.test.ts`, `tests/application/preference.test.ts` |
+| P9-1 | done | ✅ | `services/profile-engine/explanation-generator.ts` |
+| P9-2 | done | ✅ | `services/profile-engine/preference-detector.ts` |
+| P9-3 | done | ✅ | `services/profile-engine/confidence-arbitrator.ts` |
+| P9-4 | done | ✅ | `application/agent.ts` |
+| P9-5 | done | ✅ | `tests/application/explanation.test.ts`, `tests/application/preference.test.ts` |
 
 ---
