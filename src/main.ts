@@ -50,11 +50,11 @@ eventBus.register(new AlertSubscriber());
 
 const server = buildServer(agent, profileStore, config);
 
-server.listen({ port: config.server.port, host: '0.0.0.0' }).then((address) => {
+server.listen({ port: config.server.port, host: '0.0.0.0' }).then((address: string) => {
   console.log(`[ecom-agent] server listening on ${address}`);
   console.log(`[ecom-agent] LLM: ${config.llm.modelId} @ ${config.llm.baseUrl}`);
   console.log(`[ecom-agent] data dir: ${config.paths.dataDir}`);
-}).catch((err) => {
+}).catch((err: unknown) => {
   console.error('[ecom-agent] failed to start:', err);
   process.exit(1);
 });

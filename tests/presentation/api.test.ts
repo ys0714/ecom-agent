@@ -36,10 +36,12 @@ describe('API endpoints', () => {
 
   afterAll(async () => { await app.close(); });
 
-  it('GET /health returns ok', async () => {
+  it('GET /health returns status', async () => {
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body).status).toBe('ok');
+    const body = JSON.parse(res.body);
+    expect(['ok', 'degraded']).toContain(body.status);
+    expect(body.timestamp).toBeTruthy();
   });
 
   it('POST /api/conversation returns reply', async () => {

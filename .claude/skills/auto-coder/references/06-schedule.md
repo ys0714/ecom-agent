@@ -125,4 +125,16 @@
 | P9-7 | done | ✅ | `services/profile-engine/preference-detector.ts` |
 | P9-8 | done | ✅ | `tests/application/preference-hybrid.test.ts` |
 
+### Phase 10：监控运维（Monitoring & Observability）
+
+> **交付物**：指标 API、深度健康检查、结构化日志、配置审计——不引入新依赖。
+
+| 模块 | 任务 | 状态 | 关键文件 |
+|------|------|------|---------|
+| P10-1 | done | ✅ | `presentation/api/metrics-handler.ts` |
+| P10-2 | done | ✅ | `presentation/server.ts` |
+| P10-3 | done | ✅ | `infra/adapters/logger.ts` |
+| P10-4 | done | ✅ | `subscribers/config-watch-subscriber.ts` |
+| P10-5 | done | ✅ | `tests/presentation/monitoring.test.ts` |
+
 ---

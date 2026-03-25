@@ -30,10 +30,11 @@
 | **分布式部署** | 单进程 Fastify | → 画像服务 / 推理服务 / 对话服务拆分 |
 | **模型多元化** | Qwen 8B/72B 双槽位 | → 多模型矩阵（不同任务用不同专精模型） |
 
-### 7.4 监控运维
+### 7.4 监控运维（远期增强）
 
 | 方向 | 说明 |
 |------|------|
-| **Dashboard** | Web 可视化面板：推荐准确率趋势、飞轮迭代记录、Guardrail 拦截统计 |
-| **OTel Logs** | 接入 OTel Logs API，实现 Metrics + Traces + Logs 三支柱统一 |
-| **配置审计** | 运行时参数变更的审计日志 + 一键回滚 |
+| **Dashboard** | Web 可视化面板（Grafana / 自建前端）：推荐准确率趋势、飞轮迭代、Guardrail 拦截 |
+| **Prometheus 格式** | 引入 prom-client，`/metrics` 暴露 Prometheus 格式指标，接入 Grafana 看板 |
+| **OTel 全链路** | 安装 OTel 包，自动插桩 HTTP/Redis/LLM，导出到 Jaeger |
+| **配置回滚** | 配置审计日志 + 一键回滚到历史版本 |
