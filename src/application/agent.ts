@@ -5,7 +5,7 @@ import { ModelSlotManager } from './services/model-slot/model-slot-manager.js';
 import { IntentRouter } from './workflow/intent-router.js';
 import { matchSpecs } from './services/profile-engine/spec-inference.js';
 import { ColdStartManager } from './services/profile-engine/cold-start-manager.js';
-import { PreferenceDetector } from './services/profile-engine/preference-detector.js';
+import { PreferenceDetector, detectAllByRules } from './services/profile-engine/preference-detector.js';
 import { arbitrate } from './services/profile-engine/confidence-arbitrator.js';
 import { generateExplanation, formatExplanationForReply } from './services/profile-engine/explanation-generator.js';
 import type { ProfileStore } from './services/profile-store.js';
@@ -48,19 +48,23 @@ export class Agent {
     const intentResult = await intentRouter.classify(userMsg);
 
     const prefDetector = new PreferenceDetector();
-    const prefSignal = prefDetector.detect(userText);
+    const prefSignals = detectAllByRules(userText);
+    const prefSignal = prefSignals[0] ?? { type: 'none' as const, confidence: 0, value: {}, source: 'conversation' as const };
 
-    if (prefSignal.type === 'profile_correction') {
-      const corrections = prefSignal.value;
-      const delta: Record<string, unknown> = { role: profile.spec.defaultRole };
+    let activeRole: GenderRole | undefined;
+    const roleSignal = prefSignals.find((s) => s.type === 'role_switch');
+    if (roleSignal) {
+      activeRole = roleSignal.value.targetRole as GenderRole;
+    }
+
+    const correctionSignal = prefSignals.find((s) => s.type === 'profile_correction');
+    if (correctionSignal) {
+      const corrections = correctionSignal.value;
+      const role = activeRole ?? profile.spec.defaultRole;
+      const delta: Record<string, unknown> = { role };
       if (corrections.height) delta.height = [corrections.height, corrections.height] as [number, number];
       if (corrections.weight) delta.weight = [corrections.weight, corrections.weight] as [number, number];
       profile.applyDelta({ dimensionId: 'specPreference', delta, source: 'conversation', timestamp: new Date().toISOString() });
-    }
-
-    let activeRole: GenderRole | undefined;
-    if (prefSignal.type === 'role_switch') {
-      activeRole = prefSignal.value.targetRole as GenderRole;
     }
 
     const coldAction = coldStartManager.getAction(profile);

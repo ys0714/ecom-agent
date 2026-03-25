@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { PreferenceDetector, detectByRules } from '../../src/application/services/profile-engine/preference-detector.js';
+import { PreferenceDetector, detectByRules, detectAllByRules } from '../../src/application/services/profile-engine/preference-detector.js';
 import { ModelPreferenceAnalyzer } from '../../src/application/services/profile-engine/model-preference-analyzer.js';
 import type { LLMClient } from '../../src/infra/adapters/llm.js';
 
@@ -12,6 +12,36 @@ describe('detectByRules (fast path)', () => {
     expect(detectByRules('这件太小了')).toBeNull();
     expect(detectByRules('上次那件偏紧')).toBeNull();
     expect(detectByRules('感觉不太合身')).toBeNull();
+  });
+
+  it('returns null for normal chat', () => {
+    expect(detectByRules('这件衣服好看吗')).toBeNull();
+  });
+});
+
+describe('detectAllByRules (multi-signal)', () => {
+  it('returns both role_switch AND profile_correction from one message', () => {
+    const signals = detectAllByRules('帮我老公买，他身高180cm，体重150斤');
+    const types = signals.map((s) => s.type);
+    expect(types).toContain('role_switch');
+    expect(types).toContain('profile_correction');
+
+    const roleSignal = signals.find((s) => s.type === 'role_switch')!;
+    expect(roleSignal.value.targetRole).toBe('male');
+
+    const correctionSignal = signals.find((s) => s.type === 'profile_correction')!;
+    expect(correctionSignal.value.height).toBe(180);
+    expect(correctionSignal.value.weight).toBe(150);
+  });
+
+  it('returns single signal for simple override', () => {
+    const signals = detectAllByRules('我要L码');
+    expect(signals).toHaveLength(1);
+    expect(signals[0].type).toBe('explicit_override');
+  });
+
+  it('returns empty array for no match', () => {
+    expect(detectAllByRules('好看吗')).toHaveLength(0);
   });
 
   it('rules WILL match "朋友身高165cm" (known limitation — LLM path corrects this)', () => {

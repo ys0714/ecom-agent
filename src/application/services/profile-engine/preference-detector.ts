@@ -28,28 +28,33 @@ const HEIGHT_PATTERN = /(?:身高|我)\s*(\d{2,3})\s*(?:cm|厘米)/;
 const WEIGHT_PATTERN = /(?:体重|我)\s*(\d{2,3})\s*(?:斤|kg|公斤)/;
 
 /**
- * Rule-based fast path. Returns null if no rule matches (→ should use LLM path).
+ * Rule-based fast path. Returns all matching signals (a message can contain
+ * both role_switch AND profile_correction, e.g. "帮我老公买，他180cm").
  */
-export function detectByRules(message: string): PreferenceSignal | null {
+export function detectAllByRules(message: string): PreferenceSignal[] {
+  const signals: PreferenceSignal[] = [];
+
   const sizeMatch = SIZE_PATTERN.exec(message);
   if (sizeMatch) {
-    return { type: 'explicit_override', confidence: 1.0, value: { specifiedSize: sizeMatch[1].toUpperCase() }, source: 'conversation' };
+    signals.push({ type: 'explicit_override', confidence: 1.0, value: { specifiedSize: sizeMatch[1].toUpperCase() }, source: 'conversation' });
   }
 
   const rejectMatch = REJECT_PATTERN.exec(message);
   if (rejectMatch) {
-    return { type: 'explicit_override', confidence: 1.0, value: { rejectedSize: (rejectMatch[1] ?? rejectMatch[2]).toUpperCase() }, source: 'conversation' };
+    signals.push({ type: 'explicit_override', confidence: 1.0, value: { rejectedSize: (rejectMatch[1] ?? rejectMatch[2]).toUpperCase() }, source: 'conversation' });
   }
 
   for (const { pattern, role } of ROLE_PATTERNS) {
     if (pattern.test(message)) {
-      return { type: 'role_switch', confidence: 0.4, value: { targetRole: role }, source: 'conversation' };
+      signals.push({ type: 'role_switch', confidence: 0.4, value: { targetRole: role }, source: 'conversation' });
+      break;
     }
   }
 
   for (const { pattern, direction } of FIT_PATTERNS) {
     if (pattern.test(message)) {
-      return { type: 'fit_modifier', confidence: 0.6, value: { fitDirection: direction }, source: 'conversation' };
+      signals.push({ type: 'fit_modifier', confidence: 0.6, value: { fitDirection: direction }, source: 'conversation' });
+      break;
     }
   }
 
@@ -59,10 +64,18 @@ export function detectByRules(message: string): PreferenceSignal | null {
   const weightMatch = WEIGHT_PATTERN.exec(message);
   if (weightMatch) corrections.weight = parseFloat(weightMatch[1]);
   if (Object.keys(corrections).length > 0) {
-    return { type: 'profile_correction', confidence: 0.7, value: corrections, source: 'conversation' };
+    signals.push({ type: 'profile_correction', confidence: 0.7, value: corrections, source: 'conversation' });
   }
 
-  return null;
+  return signals;
+}
+
+/**
+ * Single-signal fast path (backward compat). Returns highest-priority signal or null.
+ */
+export function detectByRules(message: string): PreferenceSignal | null {
+  const all = detectAllByRules(message);
+  return all.length > 0 ? all[0] : null;
 }
 
 // ─── Hybrid detector (rule fast path + LLM deep path) ───────────────────────
