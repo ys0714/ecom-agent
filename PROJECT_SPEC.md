@@ -1883,19 +1883,20 @@ sdk.start();
 | P10-4 | done | ✅ | `subscribers/config-watch-subscriber.ts` |
 | P10-5 | done | ✅ | `tests/presentation/monitoring.test.ts` |
 
-### Phase 11：可观测性全栈（OTel + Prometheus + Streamlit Dashboard）
+### Phase 11：Web Chat UI + 调试面板（Next.js）
 
-> **交付物**：Prometheus 格式指标、OTel 自动插桩、Streamlit 全功能 Dashboard（含配置回滚）。
+> **交付物**：浏览器对话窗口 + 实时调试面板（画像/匹配/偏好检测/仲裁过程可视化）。
+> 回退了原 Phase 11 的 OTel/prom-client/Streamlit（偏离项目焦点），改为聚焦核心的对话交互体验。
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P11-1 | done | ✅ | `presentation/api/metrics-handler.ts`, `package.json` |
-| P11-2 | done | ✅ | `infra/observability/otel-setup.ts` |
-| P11-3 | done | ✅ | `presentation/api/admin-handler.ts` |
-| P11-4 | done | ✅ | `dashboard/app.py` |
-| P11-5 | done | ✅ | `dashboard/app.py` |
-| P11-6 | done | ✅ | `dashboard/app.py` |
-| P11-7 | done | ✅ | `tests/presentation/observability.test.ts` |
+| P11-1 | Next.js 项目初始化（`web/` 目录，TypeScript，Tailwind CSS） | 📋 | `web/package.json`, `web/next.config.ts` |
+| P11-2 | ChatPanel 组件（消息列表 + 输入框 + 发送，调 `/api/conversation`） | 📋 | `web/app/page.tsx`, `web/components/ChatPanel.tsx` |
+| P11-3 | DebugPanel 组件（画像快照 + 覆盖率匹配详情 + 偏好检测信号 + 仲裁决策） | 📋 | `web/components/DebugPanel.tsx` |
+| P11-4 | 后端 `/api/conversation` 增加 `debug` 字段（返回画像/匹配/偏好/仲裁的完整中间数据） | 📋 | `presentation/api/conversation-handler.ts`, `application/agent.ts` |
+| P11-5 | ProfilePanel 组件（当前画像状态 + 冷启动阶段 + 维度完整度） | 📋 | `web/components/ProfilePanel.tsx` |
+| P11-6 | Fastify 代理 `/web` 路由到 Next.js dev server（开发模式）或静态托管（生产模式） | 📋 | `presentation/server.ts` |
+| P11-7 | Web UI 集成测试 | 📋 | `web/` 内部测试 |
 
 ---
 
@@ -1935,6 +1936,6 @@ sdk.start();
 
 | 方向 | 说明 |
 |------|------|
-| **Grafana 接入** | prom-client 已暴露 Prometheus 格式指标，可直接接入 Grafana 看板 |
-| **Jaeger 接入** | OTel 已自动插桩 HTTP/Redis，生产部署时配置 OTLP 导出到 Jaeger |
-| **Dashboard 增强** | Streamlit Dashboard 持续迭代：更多图表、告警规则可视化配置 |
+| **Prometheus/Grafana** | 引入 prom-client 暴露 Prometheus 指标，接入 Grafana 看板 |
+| **OTel 全链路** | 安装 OTel 包，自动插桩 HTTP/Redis/LLM，导出到 Jaeger |
+| **Chat UI 增强** | 对话历史持久化、多用户切换、SSE 流式输出 |

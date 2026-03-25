@@ -34,6 +34,6 @@
 
 | 方向 | 说明 |
 |------|------|
-| **Grafana 接入** | prom-client 已暴露 Prometheus 格式指标，可直接接入 Grafana 看板 |
-| **Jaeger 接入** | OTel 已自动插桩 HTTP/Redis，生产部署时配置 OTLP 导出到 Jaeger |
-| **Dashboard 增强** | Streamlit Dashboard 持续迭代：更多图表、告警规则可视化配置 |
+| **Prometheus/Grafana** | 引入 prom-client 暴露 Prometheus 指标，接入 Grafana 看板 |
+| **OTel 全链路** | 安装 OTel 包，自动插桩 HTTP/Redis/LLM，导出到 Jaeger |
+| **Chat UI 增强** | 对话历史持久化、多用户切换、SSE 流式输出 |

@@ -1,49 +1,36 @@
-import { NodeSDK } from '@opentelemetry/sdk-node';
-import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
-import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
-import { trace, type Tracer } from '@opentelemetry/api';
+/**
+ * OpenTelemetry SDK initialization placeholder.
+ * Install @opentelemetry/* packages and enable via OTEL_ENABLED=true for production.
+ */
 
 export interface OTelConfig {
   serviceName: string;
   enabled: boolean;
-  prometheusPort?: number;
 }
 
-let sdk: NodeSDK | null = null;
+let initialized = false;
 
-export function initOTel(config: OTelConfig): void {
-  if (!config.enabled || sdk) return;
+export async function initOTel(config: OTelConfig): Promise<void> {
+  if (!config.enabled || initialized) return;
 
-  const prometheusExporter = new PrometheusExporter({
-    port: config.prometheusPort ?? 9464,
-    preventServerStart: false,
-  });
+  try {
+    // @ts-expect-error Optional dependency
+    const { NodeSDK } = await import('@opentelemetry/sdk-node');
+    // @ts-expect-error Optional dependency
+    const { getNodeAutoInstrumentations } = await import('@opentelemetry/auto-instrumentations-node');
 
-  sdk = new NodeSDK({
-    serviceName: config.serviceName,
-    metricReader: prometheusExporter,
-    instrumentations: [
-      getNodeAutoInstrumentations({
-        '@opentelemetry/instrumentation-fs': { enabled: false },
-      }),
-    ],
-  });
-
-  sdk.start();
-  console.log(`[OTel] initialized: service=${config.serviceName}, prometheus=:${config.prometheusPort ?? 9464}`);
-}
-
-export function getTracer(name: string): Tracer {
-  return trace.getTracer(name);
+    const sdk = new NodeSDK({
+      serviceName: config.serviceName,
+      instrumentations: [getNodeAutoInstrumentations()],
+    });
+    sdk.start();
+    initialized = true;
+    console.log(`[OTel] initialized for service: ${config.serviceName}`);
+  } catch {
+    console.warn('[OTel] packages not installed, skipping');
+  }
 }
 
 export function isOTelInitialized(): boolean {
-  return sdk !== null;
-}
-
-export async function shutdownOTel(): Promise<void> {
-  if (sdk) {
-    await sdk.shutdown();
-    sdk = null;
-  }
+  return initialized;
 }
