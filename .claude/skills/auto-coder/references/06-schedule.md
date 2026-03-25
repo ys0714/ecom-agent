@@ -55,13 +55,13 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P4-1 | Guardrails 输入层（Prompt 注入检测 + 敏感词过滤 + 身份绑定） | 📋 | `application/guardrails/input-guard.ts` |
-| P4-2 | Guardrails 执行层（工具调用权限白名单 + 操作幂等 + 金额限制） | 📋 | `application/guardrails/execution-guard.ts` |
-| P4-3 | Guardrails 输出层（PII 脱敏 + 承诺合规检查 + 事实校验） | 📋 | `application/guardrails/output-guard.ts` |
-| P4-4 | Fastify 服务初始化（Zod type-provider、OTel 插桩、错误中间件） | 📋 | `presentation/server.ts` |
-| P4-5 | ConversationHandler（对话 API 入口） | 📋 | `presentation/api/conversation-handler.ts` |
-| P4-6 | ProfileHandler + AdminHandler | 📋 | `presentation/api/*.ts` |
-| P4-7 | 端到端集成测试（含 Guardrails 拦截场景） | 📋 | `tests/e2e.test.ts` |
+| P4-1 | done | ✅ | `application/guardrails/input-guard.ts` |
+| P4-2 | done | ✅ | `application/guardrails/execution-guard.ts` |
+| P4-3 | done | ✅ | `application/guardrails/output-guard.ts` |
+| P4-4 | done | ✅ | `presentation/server.ts` |
+| P4-5 | done | ✅ | `presentation/api/conversation-handler.ts` |
+| P4-6 | done | ✅ | `presentation/api/*.ts` |
+| P4-7 | done | ✅ | `tests/e2e.test.ts` |
 
 ### Phase 5：EventBus 加固 + Subscriber 体系（周 9-10）
 
