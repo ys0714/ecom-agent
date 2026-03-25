@@ -144,12 +144,12 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P11-1 | Next.js 项目初始化（`web/` 目录，TypeScript，Tailwind CSS） | 📋 | `web/package.json`, `web/next.config.ts` |
-| P11-2 | ChatPanel 组件（消息列表 + 输入框 + 发送，调 `/api/conversation`） | 📋 | `web/app/page.tsx`, `web/components/ChatPanel.tsx` |
-| P11-3 | DebugPanel 组件（画像快照 + 覆盖率匹配详情 + 偏好检测信号 + 仲裁决策） | 📋 | `web/components/DebugPanel.tsx` |
-| P11-4 | 后端 `/api/conversation` 增加 `debug` 字段（返回画像/匹配/偏好/仲裁的完整中间数据） | 📋 | `presentation/api/conversation-handler.ts`, `application/agent.ts` |
-| P11-5 | ProfilePanel 组件（当前画像状态 + 冷启动阶段 + 维度完整度） | 📋 | `web/components/ProfilePanel.tsx` |
-| P11-6 | Fastify 代理 `/web` 路由到 Next.js dev server（开发模式）或静态托管（生产模式） | 📋 | `presentation/server.ts` |
+| P11-1 | done | ✅ | `web/package.json`, `web/next.config.ts` |
+| P11-2 | done | ✅ | `web/app/page.tsx`, `web/components/ChatPanel.tsx` |
+| P11-3 | done | ✅ | `web/components/DebugPanel.tsx` |
+| P11-4 | done | ✅ | `presentation/api/conversation-handler.ts`, `application/agent.ts` |
+| P11-5 | done | ✅ | `web/components/ProfilePanel.tsx` |
+| P11-6 | done | ✅ | `presentation/server.ts` |
 | P11-7 | Web UI 集成测试 | 📋 | `web/` 内部测试 |
 
 ---

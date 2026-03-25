@@ -11,7 +11,9 @@
     "cli": "tsx src/presentation/cli/agent-cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "web": "cd web && npm run dev",
+    "web:build": "cd web && npm run build"
   },
   "engines": {
     "node": ">=18.0.0"

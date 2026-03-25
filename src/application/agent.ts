@@ -38,7 +38,7 @@ export class Agent {
     userText: string,
     conversationHistory: Message[],
     profile: UserProfileEntity,
-  ): Promise<{ reply: string; intent: WorkflowType; recommendation: SpecRecommendation | null }> {
+  ): Promise<{ reply: string; intent: WorkflowType; recommendation: SpecRecommendation | null; debug: Record<string, unknown> }> {
     const { eventBus, modelSlotManager, intentRouter, coldStartManager } = this.deps;
 
     const userMsg: Message = { role: 'user', content: userText, timestamp: new Date().toISOString() };
@@ -129,7 +129,16 @@ export class Agent {
     conversationHistory.push(assistantMsg);
     eventBus.publish(createEvent('message:assistant', { content: reply }, sessionId));
 
-    return { reply, intent: intentResult.intent, recommendation };
+    const debug: Record<string, unknown> = {
+      intent: intentResult.intent,
+      latencyMs: Date.now() - startTime,
+      profile: { completeness: profile.getCompleteness(), coldStartStage: profile.getColdStartStage(), summary: profile.summarizeForPrompt() },
+      preferenceSignal: prefSignal,
+      arbitration: prefSignals.length > 1 ? { signals: prefSignals, activeRole } : null,
+      recommendation,
+    };
+
+    return { reply, intent: intentResult.intent, recommendation, debug };
   }
 
   private buildSystemPrompt(profile: UserProfileEntity, workflow: WorkflowType): string {

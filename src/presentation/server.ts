@@ -42,6 +42,13 @@ export function buildServer(
   const app = Fastify({ logger: deps.config.server.nodeEnv !== 'test' });
   const sessMgr = deps.sessionManager ?? new SessionManager(deps.config.paths.sessions);
 
+  app.addHook('onRequest', async (request, reply) => {
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Content-Type');
+    if (request.method === 'OPTIONS') { reply.status(204).send(); }
+  });
+
   app.get('/health', async () => {
     const checks: Record<string, { status: string; latencyMs?: number }> = {};
 

@@ -55,6 +55,7 @@ export function registerConversationRoutes(
       intent: result.intent,
       recommendation: result.recommendation,
       outputSanitized: !!outputCheck.sanitizedContent,
+      debug: result.debug,
     });
   });
 }
