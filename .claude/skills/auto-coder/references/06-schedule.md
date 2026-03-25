@@ -82,11 +82,11 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P6-1 | BadCaseCollector（多信号识别，冷启动过滤） | 📋 | `services/data-flywheel/badcase-collector.ts` |
-| P6-2 | BadCaseAnalyzer（规则 + Embedding 语义聚类） | 📋 | `services/data-flywheel/badcase-analyzer.ts` |
-| P6-3 | PromptOptimizer + PromptReviewQueue（Human-in-the-Loop） | 📋 | `services/data-flywheel/prompt-*.ts` |
-| P6-4 | ABExperiment（含统计检验 Z-test/贝叶斯） | 📋 | `services/data-flywheel/ab-experiment.ts` |
-| P6-5 | AutoPromptSubscriber + 飞轮集成测试 | 📋 | `subscribers/auto-prompt-subscriber.ts` |
+| P6-1 | done | ✅ | `services/data-flywheel/badcase-collector.ts` |
+| P6-2 | done | ✅ | `services/data-flywheel/badcase-analyzer.ts` |
+| P6-3 | done | ✅ | `services/data-flywheel/prompt-*.ts` |
+| P6-4 | done | ✅ | `services/data-flywheel/ab-experiment.ts` |
+| P6-5 | done | ✅ | `subscribers/auto-prompt-subscriber.ts` |
 
 ### Phase 7：更多 Workflow + 生产加固（周 13+）
 
