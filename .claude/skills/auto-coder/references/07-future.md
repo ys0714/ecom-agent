@@ -8,7 +8,7 @@
 |------|---------|---------|---------|
 | **外部服务对接** | MockOrderService / MockProductService | 对接真实订单 API + 商品 API | 进入灰度测试时 |
 | **Redis 生产部署** | InMemoryRedisClient | 对接真实 Redis（画像持久化 + 推理缓存） | 部署到测试环境时 |
-| **画像解释性** | 推荐结果含 reasoning 文本 | 结构化推荐理由（"身高匹配 90%，体重匹配 85%"） | 已部分实现，需优化展示 |
+| **画像解释性增强** | 三层结构化解释已实现 | 增加社会证明（"相似体型用户 80% 选了 M 码"） | 有用户反馈数据后 |
 | **飞轮自动回流** | TuningAdvisor 输出建议但不自动执行 | 参数调优通过 RuntimeConfig 自动生效 | 飞轮数据积累到 500+ badcase |
 | **OTel 生产接入** | SDK 占位（graceful skip） | 安装 OTel 包 + 接入 Jaeger/Prometheus | 部署到生产时 |
 

@@ -347,45 +347,7 @@ result.match(
 | **Bulkhead** | 并发推理请求 | 最大并发 10，队列 50 |
 | **Fallback** | 模型推理 | 8B 失败 → 72B → 规则引擎兜底 |
 
-### 5.6 可观测性架构
-
-系统采用 **OpenTelemetry** 作为统一可观测性框架，覆盖 Metrics、Traces、Logs 三大支柱。不再使用 prom-client + 自研 Tracing + 自研 Logger 三套独立实现。
-
-**OTel SDK 初始化**（`infra/observability/otel-setup.ts`）：
-
-```typescript
-import { NodeSDK } from '@opentelemetry/sdk-node';
-import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
-
-const sdk = new NodeSDK({
-  serviceName: 'ecom-agent',
-  traceExporter: new OTLPTraceExporter({ url: config.otel.traceEndpoint }),
-  metricReader: new PrometheusExporter({ port: config.otel.metricsPort }),
-  instrumentations: [getNodeAutoInstrumentations()],
-});
-sdk.start();
-```
-
-**自动插桩**（零代码改动即可采集）：
-
-| 插桩目标 | 自动采集内容 |
-|---------|------------|
-| HTTP (Fastify) | 请求延迟、状态码、路由维度 |
-| Redis (ioredis) | 命令延迟、连接池状态 |
-| 自定义 LLM Span | 推理延迟、token 数、模型名称（通过手动 Span 封装） |
-
-**自定义业务指标**（通过 OTel Metrics API）：
-
-| 指标名称 | 类型 | 维度 | 说明 |
-|---------|------|------|------|
-| `profile.conflict.total` | Counter | `conflict_type`, `resolved` | 画像冲突总数 |
-| `inference.duration` | Histogram | `model_name`, `slot_id` | 推理延迟分布 |
-| `inference.fallback.total` | Counter | `from_model`, `to_model` | 降级次数 |
-| `badcase.total` | Counter | `signal_type` | BadCase 识别总数 |
-| `workflow.transition.total` | Counter | `from`, `to` | Workflow 切换次数 |
-| `cold_start.stage` | Gauge | `stage` | 各冷启动阶段用户数 |
-
-### 5.7 配置管理架构
+### 5.6 配置管理架构
 
 系统采用**分层配置**设计，支持运行时热更新业务参数，无需重启服务。
 
@@ -423,24 +385,5 @@ sdk.start();
 | `LLM_BASE_URL` / `LLM_MODEL_ID` | - | 不支持 | 需重启（通过模型热切换替代） |
 
 配置变更通过 `ConfigWatchSubscriber` 推送到相关模块，模块自行响应更新。
-
-### 5.8 容量规划
-
-基于预估流量的资源需求估算（以日活 10 万用户、日均 50 万次对话为基准）：
-
-| 资源 | 估算 | 依据 |
-|------|------|------|
-| **Redis 内存** | ~10 GB | 100 万用户画像 × ~10KB/画像 |
-| **Redis 推理缓存** | ~2 GB | 50 万活跃 SKU × ~4KB 缓存条目，TTL=1h 自动淘汰 |
-| **会话 JSONL 磁盘** | ~15 GB/月 | 50 万对话/天 × 平均 10 轮 × ~1KB/条 × 30 天 |
-| **Node.js 进程** | 2-4 实例 | 单进程支撑 ~500 并发 WebSocket/HTTP 连接 |
-| **8B 模型 GPU** | 1×X40 GPU | 支撑 ~100 QPS（continuous batching），P50 ~100ms |
-| **72B fallback GPU** | 1×2 X40 GPU | 低 QPS 兜底，平时闲置可用于飞轮离线评估 |
-| **BadCase JSONL** | ~500 MB/月 | 按 5% BadCase 率估算 |
-
-**扩容策略**：
-- Node.js 水平扩容（无状态，Redis 集中存储画像和会话元数据）
-- 8B 模型通过 vLLM 多实例或增加 GPU 扩容
-- JSONL 日志按天滚动 + 定期归档到对象存储
 
 ---

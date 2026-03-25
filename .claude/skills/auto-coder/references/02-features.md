@@ -721,116 +721,21 @@ function arbitrate(existing: number, incoming: PreferenceSignal): 'accept' | 'me
 
 ### 2.3 会话记忆与上下文管理
 
-系统采用**画像 Store + 滑动窗口**的简洁记忆架构，避免过度工程。核心洞察：用户画像是结构化的确定性数据（体重/身高/尺码），始终注入 System Prompt，不需要复杂的分层记忆检索。
+系统采用**画像 Store + 滑动窗口**的简洁记忆架构。用户画像是结构化确定性数据，始终通过 `summarizeForPrompt()` 注入 System Prompt，不需要复杂的分层记忆检索。
 
-> 参考 Mem0 的实证结论："90% 的 token 节省来自只注入相关记忆到 Prompt，而非复杂的分层流转。"
-> 参考 Letta(MemGPT) 的 Core Memory 设计："始终可见的结构化数据直接 prepend 到 Prompt，不需要检索。"
+- **画像 Store**：Redis（RedisJSON）+ JSON 文件落盘，跨会话持久
+- **滑动窗口**：最近 K 轮对话（默认 K=10），FIFO 淘汰，超出直接丢弃
+- **会话持久化**：SessionManager + JSONL append-only 写入，支持重建
 
-#### 2.3.1 画像 Store（长期持久化）
-
-| 属性 | 说明 |
-|------|------|
-| 存储介质 | Redis（RedisJSON 支持部分更新）+ JSON 文件落盘 |
-| 生命周期 | 跨会话持久，随订单 T+1 增量更新 + 对话实时补充 |
-| 内容 | `UserProfileEntity` 完整画像（见 2.1.1） |
-| 使用方式 | 每轮对话开始时读取，通过 `summarizeForPrompt()` 注入 System Prompt |
-| 更新方式 | 对话中提取到新偏好信号时直接 `applyDelta()` 并写回 Redis |
-
-#### 2.3.2 滑动窗口（会话上下文）
-
-| 属性 | 说明 |
-|------|------|
-| 存储介质 | 纯内存 |
-| 生命周期 | 当前会话，会话结束后归档到 JSONL |
-| 内容 | 最近 K 轮对话（默认 K=10），含 user/assistant/tool_call/tool_result |
-| 淘汰策略 | FIFO 滑动，超出 K 轮的消息直接丢弃（不压缩、不摘要） |
-| 大小约束 | 固定 K 条消息（约 5KB） |
-
-**LLM 上下文构建**：
-
-```
-System Prompt:
-  ├── 角色人设（静态）
-  ├── 用户画像摘要（UserProfileEntity.summarizeForPrompt()）
-  ├── 当前场景指令（基于 WorkflowType 条件拼接）
-  └── 安全约束（Guardrails 指令）
-+
-滑动窗口内的最近 K 轮对话消息
-```
-
-> Prompt 拼接使用 TypeScript 模板字面量 + 条件表达式，简洁直接，不引入额外模板引擎：
-> ```typescript
-> const systemPrompt = `你是一个电商客服。
-> ${profile.getCompleteness() >= 0.7
->   ? `用户画像：${profile.summarizeForPrompt()}`
->   : '请先询问用户的基本信息（身高/体重/常穿尺码）'}
-> ${workflow === 'complaint' ? '请以安抚为优先策略。' : ''}
-> ${GUARDRAIL_INSTRUCTIONS}`;
-> ```
-
-**会话持久化与重建**：
-
-- **持久化格式**：JSONL（每行一个 JSON 记录），append-only 写入
-- **记录类型**：`session_start`, `session_end`, `message`, `tool_call`, `tool_result`, `profile_update`
-- **重建流程**：`SessionManager.rebuild(sessionId)` → 解析 JSONL → 恢复滑动窗口最近 K 轮 → 从 Redis 加载画像 → 继续追加
+Prompt 拼接使用 TypeScript 模板字面量（画像摘要 + 场景指令 + Guardrails 约束 + 滑动窗口消息）。
 
 ### 2.4 EventBus + Subscriber 运行时解耦
 
-所有核心行为通过 `InMemoryEventBus<AgentEvent>` 发布-订阅，实现运行时与监控采集的完全解耦。
+所有核心行为通过 `InMemoryEventBus<AgentEvent>` 发布-订阅，实现运行时与监控采集的完全解耦。事件按 Critical/Normal/Low 三级分发，每个 Subscriber 运行在独立错误边界内。
 
-#### 2.4.1 事件分级与消息模式
+**六大 Subscriber**：SessionLogSubscriber（JSONL 日志）、MetricsSubscriber（推理延迟/降级率）、AlertSubscriber（连续降级告警）、AutoPromptSubscriber（飞轮触发）、ConfigWatchSubscriber（配置审计+回滚）、ReplaySubscriber（会话回放，预留）。
 
-事件按**业务影响**分为三个等级，不同等级采用不同的分发策略：
-
-| 等级 | 分发策略 | 事件示例 | 说明 |
-|------|---------|---------|------|
-| **Critical** | 同步分发，失败触发 fallback | `model:fallback`, `system:error`, `guardrail:blocked` | 影响业务流程正确性的事件 |
-| **Normal** | 异步分发，独立错误边界 | `profile:updated`, `model:inference`, `message:*` | 标准业务事件 |
-| **Low** | 异步分发，批量/延迟处理 | `session:summary`, `badcase:prompt_optimized` | 运维/分析类事件 |
-
-#### 2.4.2 事件类型定义
-
-| 事件类型 | 等级 | 触发时机 | 消费者 |
-|---------|------|---------|--------|
-| `agent:start` / `agent:stop` | Normal | 会话开始/结束 | SessionLogSubscriber, MetricsSubscriber |
-| `message:user` / `message:assistant` | Normal | 用户/客服消息到达 | SessionLogSubscriber, ReplaySubscriber |
-| `tool:call` / `tool:result` | Normal | 工具调用前/后 | MetricsSubscriber, TracingSubscriber |
-| `profile:updated` | Normal | 用户画像更新 | SessionLogSubscriber, MetricsSubscriber |
-| `model:inference` | Normal | 模型推理完成 | MetricsSubscriber, TracingSubscriber |
-| `model:fallback` | Critical | 模型降级触发 | AlertSubscriber, MetricsSubscriber |
-| `model:health_check` | Low | 模型健康检查 | MetricsSubscriber |
-| `session:summary` | Low | 会话归档 | SessionLogSubscriber |
-| `badcase:detected` | Normal | BadCase 识别 | AutoPromptSubscriber, AlertSubscriber |
-| `badcase:prompt_optimized` | Low | Prompt 自动优化 | MetricsSubscriber |
-| `guardrail:blocked` | Critical | 安全护栏拦截 | AlertSubscriber, SessionLogSubscriber |
-| `system:error` | Critical | 系统异常 | AlertSubscriber, SessionLogSubscriber |
-
-#### 2.4.3 Subscriber 错误隔离
-
-每个 Subscriber 运行在**独立错误边界**内：
-
-```typescript
-interface EventSubscriber {
-  name: string;
-  subscribedEvents: AgentEventType[];
-  priority: 'critical' | 'normal' | 'low';
-  handle(event: AgentEvent): void | Promise<void>;
-  onError?(error: Error, event: AgentEvent): void;
-}
-```
-
-**错误处理策略**：Critical 重试 3 次 → 死信队列 → 告警；Normal 重试 1 次 → 日志；Low 不重试 → 静默。
-
-#### 2.4.4 六大 Subscriber 实现
-
-1. **`SessionLogSubscriber`** (Normal) — JSONL 会话日志持久化
-2. **`MetricsSubscriber`** (Normal) — 通过 OTel Metrics API 暴露指标
-3. **`TracingSubscriber`** (Normal) — 通过 OTel Tracing API 导出 span
-4. **`AlertSubscriber`** (Critical) — 规则告警（连续降级/错误率/BadCase 率），Webhook 预留
-5. **`AutoPromptSubscriber`** (Low) — BadCase 事件触发数据飞轮 Pipeline
-6. **`ConfigWatchSubscriber`** (Normal) — 配置热更新推送
-
-新增 Subscriber 只需实现接口并调用 `registry.register()`，无需修改任何现有代码。
+新增 Subscriber 只需实现 `EventSubscriber` 接口并调用 `registry.register()`。
 
 ### 2.5 数据飞轮 — Analyze → Measure → Improve 闭环
 
@@ -998,58 +903,20 @@ const productConsult = new WorkflowGraph<ConsultState>()
 | Workflow | 核心工具 | 状态节点 |
 |----------|---------|---------|
 | `ProductConsultWorkflow` | 查询商品、规格推理、比价 | `greeting → need_analysis → recommendation → spec_selection → confirmation` |
-| `AfterSaleWorkflow` | 查询订单、退款策略、工单创建 | `issue_identify → order_lookup → solution_propose → execute` |
-| `LogisticsWorkflow` | 物流查询、配送状态 | `order_identify → tracking → eta_notify` |
-| `ComplaintWorkflow` | 工单创建、优惠补偿、转人工 | `issue_collect → severity_assess → resolution → followup` |
+| 其他 Workflow | 售后/物流/投诉（骨架实现） | 见 `application/workflow/*.ts` |
 
 ### 2.7 Agent Guardrails 安全护栏
 
-电商客服 Agent 必须具备安全防护能力。参考业界实践（Google Cloud Agent KPI 框架、Strands Evals），系统实现**输入/执行/输出三层防护**：
+电商客服 Agent 实现**输入/执行/输出三层防护**：
 
-```
-用户消息 → [输入层] → LLM 推理 → [执行层] → 生成回复 → [输出层] → 返回用户
-```
+| 层 | 防护项 | 方法 |
+|----|--------|------|
+| 输入 | Prompt 注入检测 | 中英文正则模式匹配 |
+| 输入 | 敏感词过滤 | 可配置关键词库 |
+| 输入 | 用户身份绑定 | Session 校验 |
+| 执行 | 工具调用权限 | Workflow 白名单 |
+| 执行 | 金额/频率限制 | 阈值校验 |
+| 输出 | PII 脱敏 | 手机号/身份证/银行卡正则替换 |
+| 输出 | 承诺合规检查 | "保证退全款"等未授权承诺拦截 |
 
-#### 2.7.1 输入层防护
-
-| 防护项 | 方法 | 说明 |
-|--------|------|------|
-| **Prompt 注入检测** | 规则匹配 + LLM 分类 | 检测"忽略上面的指令"、角色扮演攻击等注入模式 |
-| **敏感词过滤** | 关键词库 + 正则 | 过滤违禁词、竞品名称等（可配置词库） |
-| **用户身份绑定** | Session 校验 | 确保用户只能查询自己的订单/画像，防止越权 |
-
-#### 2.7.2 执行层防护
-
-| 防护项 | 方法 | 说明 |
-|--------|------|------|
-| **工具调用权限** | 白名单 + Workflow 上下文 | 每个 Workflow 只能调用其声明的工具集 |
-| **操作幂等性** | 幂等 key 校验 | 退款等敏感操作防止重复执行 |
-| **金额/频率限制** | 阈值校验 | 单次补偿金额上限、每日操作次数限制 |
-
-#### 2.7.3 输出层防护
-
-| 防护项 | 方法 | 说明 |
-|--------|------|------|
-| **PII 脱敏** | 正则检测 + 脱敏替换 | 手机号、地址、身份证号等在回复中自动脱敏 |
-| **承诺合规检查** | 关键词 + LLM 二次校验 | 检测"保证退全款"等未授权承诺，替换为合规表述 |
-| **事实校验** | 与工具调用结果比对 | 确保回复中的价格、库存等信息与实际查询结果一致 |
-
-**Guardrail 触发时**：
-
-- 拦截的消息通过 `EventBus.publish('guardrail:blocked', details)` 广播
-- AlertSubscriber 记录并按规则触发告警
-- 被拦截的回复替换为安全的兜底话术（如"抱歉，我无法处理该请求，已为您转接人工客服"）
-
-```typescript
-interface GuardrailResult {
-  passed: boolean;
-  blockedBy?: 'input' | 'execution' | 'output';
-  reason?: string;
-  sanitizedContent?: string;          // 脱敏/修正后的安全内容
-}
-```
-
-
----
-
----
+触发时通过 `EventBus.publish('guardrail:blocked')` 广播，AlertSubscriber 记录告警。
