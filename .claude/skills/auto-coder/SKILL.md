@@ -14,12 +14,45 @@ Optional modifiers: append a task ID (e.g. `auto code M2-3`) to target a specifi
 ## Pipeline
 
 ```
-Sync Spec → Find Task → Implement → Test (≤3 fix rounds) → Persist
+Pre-check → Sync Spec → Find Task → Implement → Test (≤3 fix rounds) → Persist
 ```
 
 Pause only at the end for commit confirmation. Run everything else autonomously.
 
 > **⚠️ This is a TypeScript / Node.js ESM project. Use `npm run lint` to type-check, `npm test` to run Vitest, `npm run dev` to start.**
+
+### 0. Pre-check (EVERY TIME before coding)
+
+Before writing any code, ask yourself:
+
+1. **Is the SPEC up to date for this task?**
+   - Read the task description in `06-schedule.md`
+   - Check if the corresponding feature section in `02-features.md` has enough detail to implement
+   - If the feature involves a new algorithm, architecture pattern, or user-facing design → **STOP and trigger tech-researcher first**
+   - Coding without an updated SPEC = building on sand
+
+2. **Does this task need a tech research first?**
+   Trigger `tech-researcher` skill if ANY of these apply:
+   - New algorithm or data structure design
+   - New external dependency or framework
+   - User-facing feature (explanation, recommendation display, onboarding flow)
+   - SPEC section says "参考开源社区" or "待调研"
+   - You are uncertain about the best approach
+
+3. **Has the user confirmed the approach?**
+   - If tech-researcher was triggered, user must have confirmed the report
+   - SPEC must be updated with the confirmed approach
+   - Only then proceed to Step 1 (Sync Spec)
+
+**Flow:**
+```
+Need research? ──YES──→ tech-researcher → user confirms → update SPEC → continue
+       │
+       NO
+       │
+       ▼
+   Sync Spec → Find Task → ...
+```
 
 ## Reference Map
 
