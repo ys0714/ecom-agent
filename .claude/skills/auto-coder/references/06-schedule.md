@@ -69,12 +69,12 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P5-1 | EventBus 事件分级（Critical/Normal/Low）+ Subscriber 错误隔离 | 📋 | `domain/event-bus.ts` |
-| P5-2 | SessionLogSubscriber（JSONL 持久化） | 📋 | `subscribers/session-log-subscriber.ts` |
-| P5-3 | MetricsSubscriber（OTel Metrics）+ TracingSubscriber（OTel Tracing） | 📋 | `subscribers/metrics-subscriber.ts` |
-| P5-4 | AlertSubscriber（规则告警 + Webhook） | 📋 | `subscribers/alert-subscriber.ts` |
-| P5-5 | ConfigWatchSubscriber（配置热更新） | 📋 | `subscribers/config-watch-subscriber.ts` |
-| P5-6 | OTel SDK 初始化 + 自动插桩配置 | 📋 | `infra/observability/otel-setup.ts` |
+| P5-1 | done | ✅ | `domain/event-bus.ts` |
+| P5-2 | done | ✅ | `subscribers/session-log-subscriber.ts` |
+| P5-3 | done | ✅ | `subscribers/metrics-subscriber.ts` |
+| P5-4 | done | ✅ | `subscribers/alert-subscriber.ts` |
+| P5-5 | done | ✅ | `subscribers/config-watch-subscriber.ts` |
+| P5-6 | done | ✅ | `infra/observability/otel-setup.ts` |
 
 ### Phase 6：数据飞轮（周 11-12）
 
