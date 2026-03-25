@@ -1619,14 +1619,14 @@ sdk.start();
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| M2-1 | Redis 客户端封装（ioredis + RedisJSON） | 📋 | `infra/adapters/redis.ts` |
-| M2-2 | 订单服务适配器（外部 API mock + 接口定义） | 📋 | `infra/adapters/order-service.ts` |
-| M2-3 | 商品服务适配器（外部 API mock + 接口定义） | 📋 | `infra/adapters/product-service.ts` |
-| M2-4 | OrderAnalyzer + ProfileBuilder（订单 → 画像构建） | 📋 | `services/profile-engine/order-analyzer.ts` |
-| M2-5 | ProfileDimensionRegistry + 内置维度 Plugin | 📋 | `services/profile-engine/dimension-registry.ts` |
-| M2-6 | ProfileStore（RedisJSON 部分更新 + JSON 文件落盘） | 📋 | `services/profile-store.ts` |
-| M2-7 | ColdStartManager（四级冷启动策略） | 📋 | `services/profile-engine/cold-start-manager.ts` |
-| M2-8 | 画像构建单元测试 + 集成测试 | 📋 | `tests/profile-engine.test.ts` |
+| M2-1 | Redis 客户端封装（ioredis + RedisJSON） | ✅ | `infra/adapters/redis.ts` |
+| M2-2 | 订单服务适配器（外部 API mock + 接口定义） | ✅ | `infra/adapters/order-service.ts` |
+| M2-3 | 商品服务适配器（外部 API mock + 接口定义） | ✅ | `infra/adapters/product-service.ts` |
+| M2-4 | OrderAnalyzer + ProfileBuilder（订单 → 画像构建） | ✅ | `services/profile-engine/order-analyzer.ts` |
+| M2-5 | ProfileDimensionRegistry + 内置维度 Plugin | ✅ | `services/profile-engine/dimension-registry.ts` |
+| M2-6 | ProfileStore（RedisJSON 部分更新 + JSON 文件落盘） | ✅ | `services/profile-store.ts` |
+| M2-7 | ColdStartManager（四级冷启动策略） | ✅ | `services/profile-engine/cold-start-manager.ts` |
+| M2-8 | 画像构建单元测试 + 集成测试 | ✅ | `tests/profile-engine.test.ts` |
 
 ### MVP-3：模型槽位 + Workflow 路由（周 5-6）
 
