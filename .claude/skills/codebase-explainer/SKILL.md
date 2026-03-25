@@ -11,6 +11,13 @@ This skill enables the agent to systematically analyze a codebase, map it to doc
 
 当收到解析代码或梳理架构的请求时，请严格按照以下三个阶段执行：
 
+### 参考文件
+
+| 文件 | 用途 |
+|------|------|
+| [references/ecom-agent-walkthrough.md](references/ecom-agent-walkthrough.md) | 已完成的 ecom-agent 全景讲解（映射表 + 架构图 + 6 步代码讲解），可作为增量更新的基线 |
+| [references/ascii_guidelines.md](references/ascii_guidelines.md) | ASCII 架构图绘制规范 |
+
 ### 1. 梳理文档与代码映射关系 (Mapping)
 - 阅读用户提供的需求文档、设计文档（如 `PROJECT_SPEC.md`）或口述的功能说明。
 - 结合系统提供的工具（如 `Glob` 查找文件、`Read` 阅读文件、`SemanticSearch` 语义搜索），在代码库中找出每个章节/模块对应的核心代码文件。
