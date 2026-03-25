@@ -1,4 +1,4 @@
-import type { BadCaseCluster } from './badcase-analyzer.js';
+import type { FailureModeCluster } from './badcase-analyzer.js';
 
 export interface PromptCandidate {
   id: string;
@@ -14,7 +14,7 @@ export interface PromptCandidate {
  * For MVP, it produces structured suggestions for human review.
  */
 export class PromptOptimizer {
-  generateCandidates(clusters: BadCaseCluster[]): PromptCandidate[] {
+  generateCandidates(clusters: FailureModeCluster[]): PromptCandidate[] {
     const candidates: PromptCandidate[] = [];
 
     for (const cluster of clusters) {
@@ -32,7 +32,7 @@ export class PromptOptimizer {
     return candidates.slice(0, 3);
   }
 
-  private suggestImprovement(cluster: BadCaseCluster): string {
+  private suggestImprovement(cluster: FailureModeCluster): string {
     const suggestions: Record<string, string> = {
       spec_mismatch: '增加规格推荐时的置信度阈值，低于 0.6 时不主动推荐，改为询问用户偏好。',
       profile_inaccurate: '在画像不完整时（completeness < 0.5），优先询问而非推断。',

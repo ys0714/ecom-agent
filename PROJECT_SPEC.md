@@ -1740,12 +1740,12 @@ sdk.start();
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P6-1 | BadCase Trace 采集重构（携带完整决策上下文：Prompt 版本、画像快照、匹配详情） | 🔧 | `services/data-flywheel/badcase-collector.ts` |
-| P6-2 | SpecRecommendationEvaluator（推荐准确率、首次接受率、覆盖率有解率、fallback 率） | 📋 | `services/data-flywheel/evaluator.ts` |
-| P6-3 | 多维根因归因引擎（替换硬编码映射，基于 Trace 上下文自动归因 6 种失败模式） | 🔧 | `services/data-flywheel/badcase-analyzer.ts` |
-| P6-4 | 旋钮调优器（定位失败模式 → 对应参数旋钮 → 生成调优方案） | 📋 | `services/data-flywheel/tuning-advisor.ts` |
-| P6-5 | A/B 实验增强（明确 success 定义：spec_accepted / session_purchase） | 🔧 | `services/data-flywheel/ab-experiment.ts` |
-| P6-6 | 飞轮闭环集成测试（Trace→评估→归因→调优→A/B→回流） | 📋 | `tests/data-flywheel.test.ts` |
+| P6-1 | BadCase Trace 采集重构（携带完整决策上下文） | ✅ | `services/data-flywheel/badcase-collector.ts` |
+| P6-2 | SpecRecommendationEvaluator（推荐准确率、首次接受率、覆盖率有解率、fallback 率） | ✅ | `services/data-flywheel/evaluator.ts` |
+| P6-3 | 多维根因归因引擎（基于 Trace 上下文自动归因 6 种失败模式） | ✅ | `services/data-flywheel/badcase-analyzer.ts` |
+| P6-4 | 旋钮调优器（定位失败模式 → 对应参数旋钮 → 生成调优方案） | ✅ | `services/data-flywheel/tuning-advisor.ts` |
+| P6-5 | A/B 实验增强（明确 success 定义：spec_accepted / session_purchase） | ✅ | `services/data-flywheel/ab-experiment.ts` |
+| P6-6 | 飞轮闭环集成测试（Trace→评估→归因→调优→A/B→回流） | ✅ | `tests/data-flywheel.test.ts` |
 
 ### Phase 7：更多 Workflow + 生产加固（周 13+）
 

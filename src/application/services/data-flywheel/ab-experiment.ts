@@ -1,3 +1,5 @@
+import type { SuccessSignal } from '../../../domain/types.js';
+
 export interface ExperimentConfig {
   id: string;
   controlPromptId: string;
@@ -8,11 +10,20 @@ export interface ExperimentConfig {
   status: 'running' | 'concluded' | 'rolled_back';
 }
 
+export interface ExperimentOutcome {
+  isControl: boolean;
+  signal: SuccessSignal | 'spec_rejected';
+}
+
 export interface ExperimentMetrics {
   controlSamples: number;
   treatmentSamples: number;
   controlSuccessRate: number;
   treatmentSuccessRate: number;
+  controlAcceptCount: number;
+  treatmentAcceptCount: number;
+  controlPurchaseCount: number;
+  treatmentPurchaseCount: number;
 }
 
 export class ABExperiment {
@@ -24,19 +35,32 @@ export class ABExperiment {
     this.metrics.set(config.id, {
       controlSamples: 0, treatmentSamples: 0,
       controlSuccessRate: 0, treatmentSuccessRate: 0,
+      controlAcceptCount: 0, treatmentAcceptCount: 0,
+      controlPurchaseCount: 0, treatmentPurchaseCount: 0,
     });
   }
 
-  recordOutcome(experimentId: string, isControl: boolean, success: boolean): void {
+  recordOutcome(experimentId: string, outcome: ExperimentOutcome): void {
     const m = this.metrics.get(experimentId);
     if (!m) return;
 
-    if (isControl) {
+    const isSuccess = outcome.signal === 'spec_accepted'
+      || outcome.signal === 'spec_not_changed'
+      || outcome.signal === 'session_purchase';
+
+    const isAccept = outcome.signal === 'spec_accepted' || outcome.signal === 'spec_not_changed';
+    const isPurchase = outcome.signal === 'session_purchase';
+
+    if (outcome.isControl) {
       m.controlSamples++;
-      m.controlSuccessRate = this.updateRate(m.controlSuccessRate, m.controlSamples, success);
+      if (isAccept) m.controlAcceptCount++;
+      if (isPurchase) m.controlPurchaseCount++;
+      m.controlSuccessRate = (m.controlAcceptCount + m.controlPurchaseCount) / m.controlSamples;
     } else {
       m.treatmentSamples++;
-      m.treatmentSuccessRate = this.updateRate(m.treatmentSuccessRate, m.treatmentSamples, success);
+      if (isAccept) m.treatmentAcceptCount++;
+      if (isPurchase) m.treatmentPurchaseCount++;
+      m.treatmentSuccessRate = (m.treatmentAcceptCount + m.treatmentPurchaseCount) / m.treatmentSamples;
     }
   }
 
@@ -66,9 +90,5 @@ export class ABExperiment {
 
   getMetrics(id: string): ExperimentMetrics | undefined {
     return this.metrics.get(id);
-  }
-
-  private updateRate(currentRate: number, totalSamples: number, success: boolean): number {
-    return ((currentRate * (totalSamples - 1)) + (success ? 1 : 0)) / totalSamples;
   }
 }

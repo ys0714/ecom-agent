@@ -205,17 +205,53 @@ export interface GuardrailResult {
 
 // ─── BadCase & Flywheel ──────────────────────────────────────────────────────
 
+export type BadCaseSignal = 'user_rejection' | 'spec_override' | 'session_timeout' | 'transfer_human';
+
+export type SuccessSignal = 'spec_accepted' | 'spec_not_changed' | 'session_purchase';
+
+export type FailureMode =
+  | 'cold_start_insufficient'
+  | 'low_coverage_match'
+  | 'coverage_no_match'
+  | 'model_fallback_quality'
+  | 'presentation_issue'
+  | 'profile_stale'
+  | 'unknown';
+
+export interface SpecMatchTrace {
+  attempted: boolean;
+  topCandidates: Array<{
+    propValueId: string;
+    coverage: number;
+    featureBreakdown: Record<string, number>;
+  }>;
+  selectedSpec: string | null;
+  fallbackToModel: boolean;
+}
+
+export interface BadCaseTrace {
+  promptVersion: string;
+  profileSnapshot: UserSpecProfile | null;
+  profileCompleteness: number;
+  coldStartStage: ColdStartStage;
+  specMatchResult: SpecMatchTrace;
+  intentResult: IntentResult;
+  workflow: WorkflowType;
+}
+
 export interface BadCase {
   id: string;
   sessionId: string;
   userId: string;
-  signal: 'user_rejection' | 'spec_override' | 'session_timeout' | 'transfer_human';
+  signal: BadCaseSignal;
   weight: number;
   context: {
     userMessage: string;
     agentResponse: string;
     recommendedSpec?: SpecRecommendation;
   };
+  trace: BadCaseTrace;
+  failureModes: FailureMode[];
   detectedAt: string;
 }
 
