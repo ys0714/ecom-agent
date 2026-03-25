@@ -34,7 +34,6 @@
 
 | 方向 | 说明 |
 |------|------|
-| **Dashboard** | Web 可视化面板（Grafana / 自建前端）：推荐准确率趋势、飞轮迭代、Guardrail 拦截 |
-| **Prometheus 格式** | 引入 prom-client，`/metrics` 暴露 Prometheus 格式指标，接入 Grafana 看板 |
-| **OTel 全链路** | 安装 OTel 包，自动插桩 HTTP/Redis/LLM，导出到 Jaeger |
-| **配置回滚** | 配置审计日志 + 一键回滚到历史版本 |
+| **Grafana 接入** | prom-client 已暴露 Prometheus 格式指标，可直接接入 Grafana 看板 |
+| **Jaeger 接入** | OTel 已自动插桩 HTTP/Redis，生产部署时配置 OTLP 导出到 Jaeger |
+| **Dashboard 增强** | Streamlit Dashboard 持续迭代：更多图表、告警规则可视化配置 |

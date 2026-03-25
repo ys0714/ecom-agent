@@ -1883,6 +1883,20 @@ sdk.start();
 | P10-4 | done | ✅ | `subscribers/config-watch-subscriber.ts` |
 | P10-5 | done | ✅ | `tests/presentation/monitoring.test.ts` |
 
+### Phase 11：可观测性全栈（OTel + Prometheus + Streamlit Dashboard）
+
+> **交付物**：Prometheus 格式指标、OTel 自动插桩、Streamlit 全功能 Dashboard（含配置回滚）。
+
+| 模块 | 任务 | 状态 | 关键文件 |
+|------|------|------|---------|
+| P11-1 | done | ✅ | `presentation/api/metrics-handler.ts`, `package.json` |
+| P11-2 | done | ✅ | `infra/observability/otel-setup.ts` |
+| P11-3 | done | ✅ | `presentation/api/admin-handler.ts` |
+| P11-4 | done | ✅ | `dashboard/app.py` |
+| P11-5 | done | ✅ | `dashboard/app.py` |
+| P11-6 | done | ✅ | `dashboard/app.py` |
+| P11-7 | done | ✅ | `tests/presentation/observability.test.ts` |
+
 ---
 
 ## 7. 可扩展性与未来展望
@@ -1921,7 +1935,6 @@ sdk.start();
 
 | 方向 | 说明 |
 |------|------|
-| **Dashboard** | Web 可视化面板（Grafana / 自建前端）：推荐准确率趋势、飞轮迭代、Guardrail 拦截 |
-| **Prometheus 格式** | 引入 prom-client，`/metrics` 暴露 Prometheus 格式指标，接入 Grafana 看板 |
-| **OTel 全链路** | 安装 OTel 包，自动插桩 HTTP/Redis/LLM，导出到 Jaeger |
-| **配置回滚** | 配置审计日志 + 一键回滚到历史版本 |
+| **Grafana 接入** | prom-client 已暴露 Prometheus 格式指标，可直接接入 Grafana 看板 |
+| **Jaeger 接入** | OTel 已自动插桩 HTTP/Redis，生产部署时配置 OTLP 导出到 Jaeger |
+| **Dashboard 增强** | Streamlit Dashboard 持续迭代：更多图表、告警规则可视化配置 |

@@ -1,45 +1,49 @@
-/**
- * OpenTelemetry SDK initialization.
- *
- * In production, this should be imported BEFORE any other modules
- * (typically via node --require or --import flag).
- *
- * For MVP, we provide a minimal setup that can be extended with
- * auto-instrumentations and exporters as needed.
- */
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
+import { trace, type Tracer } from '@opentelemetry/api';
 
 export interface OTelConfig {
   serviceName: string;
   enabled: boolean;
-  traceEndpoint?: string;
-  metricsPort?: number;
+  prometheusPort?: number;
 }
 
-let initialized = false;
+let sdk: NodeSDK | null = null;
 
-export async function initOTel(config: OTelConfig): Promise<void> {
-  if (!config.enabled || initialized) return;
+export function initOTel(config: OTelConfig): void {
+  if (!config.enabled || sdk) return;
 
-  try {
-    // Dynamic import to avoid hard dependency when OTel packages are not installed
-    // @ts-expect-error Optional dependency — installed only when OTel is needed
-    const { NodeSDK } = await import('@opentelemetry/sdk-node');
-    // @ts-expect-error Optional dependency
-    const { getNodeAutoInstrumentations } = await import('@opentelemetry/auto-instrumentations-node');
+  const prometheusExporter = new PrometheusExporter({
+    port: config.prometheusPort ?? 9464,
+    preventServerStart: false,
+  });
 
-    const sdk = new NodeSDK({
-      serviceName: config.serviceName,
-      instrumentations: [getNodeAutoInstrumentations()],
-    });
+  sdk = new NodeSDK({
+    serviceName: config.serviceName,
+    metricReader: prometheusExporter,
+    instrumentations: [
+      getNodeAutoInstrumentations({
+        '@opentelemetry/instrumentation-fs': { enabled: false },
+      }),
+    ],
+  });
 
-    sdk.start();
-    initialized = true;
-    console.log(`[OTel] initialized for service: ${config.serviceName}`);
-  } catch {
-    console.warn('[OTel] SDK packages not installed, skipping initialization');
-  }
+  sdk.start();
+  console.log(`[OTel] initialized: service=${config.serviceName}, prometheus=:${config.prometheusPort ?? 9464}`);
+}
+
+export function getTracer(name: string): Tracer {
+  return trace.getTracer(name);
 }
 
 export function isOTelInitialized(): boolean {
-  return initialized;
+  return sdk !== null;
+}
+
+export async function shutdownOTel(): Promise<void> {
+  if (sdk) {
+    await sdk.shutdown();
+    sdk = null;
+  }
 }

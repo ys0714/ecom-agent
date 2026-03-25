@@ -137,4 +137,18 @@
 | P10-4 | done | ✅ | `subscribers/config-watch-subscriber.ts` |
 | P10-5 | done | ✅ | `tests/presentation/monitoring.test.ts` |
 
+### Phase 11：可观测性全栈（OTel + Prometheus + Streamlit Dashboard）
+
+> **交付物**：Prometheus 格式指标、OTel 自动插桩、Streamlit 全功能 Dashboard（含配置回滚）。
+
+| 模块 | 任务 | 状态 | 关键文件 |
+|------|------|------|---------|
+| P11-1 | done | ✅ | `presentation/api/metrics-handler.ts`, `package.json` |
+| P11-2 | done | ✅ | `infra/observability/otel-setup.ts` |
+| P11-3 | done | ✅ | `presentation/api/admin-handler.ts` |
+| P11-4 | done | ✅ | `dashboard/app.py` |
+| P11-5 | done | ✅ | `dashboard/app.py` |
+| P11-6 | done | ✅ | `dashboard/app.py` |
+| P11-7 | done | ✅ | `tests/presentation/observability.test.ts` |
+
 ---
