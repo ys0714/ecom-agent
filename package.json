@@ -1,0 +1,39 @@
+{
+  "name": "ecom-agent",
+  "version": "0.1.0",
+  "description": "电商客服智能 Agent — 用户特征画像驱动的规格推荐系统",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "tsx src/main.ts",
+    "cli": "tsx src/presentation/cli/agent-cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["ecommerce", "agent", "llm", "user-profile"],
+  "license": "ISC",
+  "dependencies": {
+    "openai": "^4.76.0",
+    "fastify": "^5.2.0",
+    "ioredis": "^5.4.2",
+    "zod": "^3.24.2",
+    "neverthrow": "^8.1.1",
+    "cockatiel": "^3.2.1",
+    "uuid": "^11.1.0",
+    "dotenv": "^16.4.7",
+    "commander": "^14.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.7.3",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.0"
+  }
+}
