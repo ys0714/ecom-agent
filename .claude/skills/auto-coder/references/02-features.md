@@ -743,42 +743,105 @@ interface EventSubscriber {
 
 新增 Subscriber 只需实现接口并调用 `registry.register()`，无需修改任何现有代码。
 
-### 2.5 数据飞轮 — BadCase-AutoPrompt 自动优化
+### 2.5 数据飞轮 — Analyze → Measure → Improve 闭环
 
-系统实现了从 BadCase 识别到 Prompt 自动优化的完整闭环，持续提升画像推理和推荐的精准度。
+> 参考 OpenAI Evaluation Flywheel（Analyze→Measure→Improve）、Meta CharacterFlywheel（15 代模型迭代）、Agenta LLMOps 5 步生产飞轮。
 
-**BadCase 识别信号**：
+系统实现基于生产 Trace 数据的**闭环改进飞轮**，核心原则：**先能度量，再谈改进**。不是"自动优化 Prompt"的黑盒，而是"量化问题 → 调参数 → 验证效果"的工程化循环。
 
-| 识别信号 | 检测方式 | 权重 |
-|---------|---------|------|
-| 用户显式否定 | NLU 检测"不要这个"、"推荐错了"等负面反馈 | 1.0 |
-| 规格退回 | 用户更改了模型推荐的默选规格后下单 | 0.8 |
-| 会话超时放弃 | 用户在推荐后 >5 分钟无响应且未下单 | 0.5 |
-| 转人工 | 用户请求转接人工客服 | 0.9 |
+#### 2.5.1 Trace 采集（完整决策上下文）
 
-**AutoPrompt Pipeline**：
+每次推荐交互记录完整的决策链路，而非仅存用户消息和回复。BadCase 必须携带足够的上下文用于根因分析：
+
+```typescript
+interface BadCaseTrace {
+  promptVersion: string;                // 当时用的 Prompt 版本
+  profileSnapshot: UserSpecProfile;     // 当时的画像状态
+  profileCompleteness: number;
+  coldStartStage: ColdStartStage;
+
+  specMatchResult: {                    // 覆盖率匹配详细打分
+    attempted: boolean;
+    topCandidates: Array<{
+      propValueId: string;
+      coverage: number;
+      featureBreakdown: Record<string, number>;
+    }>;
+    selectedSpec: string | null;
+    fallbackToModel: boolean;
+  };
+
+  intentResult: IntentResult;
+  workflow: WorkflowType;
+}
+```
+
+#### 2.5.2 自动评估器（Measure 层）
+
+飞轮的核心前提是**能自动打分**。系统定义 `SpecRecommendationEvaluator`，持续计算推荐质量指标：
+
+| 指标 | 计算方式 | 目标 |
+|------|---------|------|
+| **推荐准确率** | 用户最终下单规格 === 系统推荐规格 | ≥ 70% |
+| **首次接受率** | 用户未修改推荐规格直接下单 / 总推荐次数 | ≥ 60% |
+| **覆盖率匹配有解率** | 覆盖率算法命中 / 总推荐请求 | ≥ 80% |
+| **模型 fallback 率** | 走了模型推理 / 总推荐请求 | ≤ 20% |
+
+评估器每日自动计算并输出趋势，指标下降时触发飞轮分析。
+
+#### 2.5.3 多维根因归因（Analyze 层）
+
+替代旧版的"信号→失败模式"一对一硬编码映射。每个 badcase 结合 Trace 上下文做**多维归因**，一个 badcase 可能同时有多个失败原因：
+
+| 归因维度 | 判定条件 | 对应旋钮 |
+|---------|---------|---------|
+| `cold_start_insufficient` | `profileCompleteness < 0.3` | 冷启动阈值 |
+| `low_coverage_match` | 覆盖率匹配有解但 top coverage < 0.5 | 特征优先级权重 |
+| `coverage_no_match` | 覆盖率匹配完全无解 | 匹配范围扩大策略 |
+| `model_fallback_quality` | 走了模型 fallback 但用户仍拒绝 | 模型质量 / Prompt |
+| `presentation_issue` | 推荐了正确规格但用户拒绝（话术问题） | System Prompt 话术 |
+| `profile_stale` | 画像最后更新 > 30 天 | 画像更新频率 |
+
+#### 2.5.4 可调旋钮 + 参数优化（Improve 层）
+
+飞轮的 Improve 不是"让 72B 写新 Prompt"，而是**调具体的参数旋钮**，每个旋钮有明确的调优方向：
+
+| 旋钮 | 位置 | 调优方向 | 触发条件 |
+|------|------|---------|---------|
+| `FEATURE_PRIORITY` | `spec-inference.ts` | 调整 height/weight/bust 等的排序权重 | `low_coverage_match` 频率 > 20% |
+| `MIN_RECOMMEND_CONFIDENCE` | Agent 推荐逻辑 | 调高=保守推荐，调低=激进推荐 | `presentation_issue` 频率 > 15% |
+| `COMPLETENESS_THRESHOLDS` | `user-profile.entity.ts` | 调整 cold/warm/hot 边界 | `cold_start_insufficient` 频率 > 30% |
+| `SLIDING_WINDOW_SIZE` | `config.ts` | 增大=更多上下文但更贵 | `context_lost` 相关 badcase |
+| **System Prompt 话术** | `agent.ts` `buildSystemPrompt()` | 修改推荐呈现方式 | `presentation_issue` 显著时 |
+
+参数调优通过 RuntimeConfig 热更新生效，无需重启服务。
+
+#### 2.5.5 A/B 验证 + 回流
 
 ```
-BadCase 池（分阶段阈值：上线初期 N=10，稳定期 N=50，高流量 N=100）
+评估器检测到指标下降
         ↓
-  ① BadCase 聚类分析（规则 + Embedding 语义聚类）
+  ① 根因归因（按 Trace 上下文自动分类）
         ↓
-  ② Prompt 缺陷定位 → 调用 72B 生成 ≤3 个候选 prompt
+  ② 定位最大失败模式 → 确定对应旋钮
         ↓
-  ③ Human-in-the-Loop 审核（候选进入审核队列，通过后继续）
+  ③ 生成调优方案（参数值变更 or Prompt 修改）
         ↓
-  ④ 离线评估（历史数据集回归测试）
+  ④ A/B 验证（灰度 10%，Z-test，最小样本 ≥1000）
+     成功定义：spec_accepted（用户接受推荐规格）
+              session_purchase（本次会话有购买）
         ↓
-  ⑤ A/B 验证（灰度 10%，最小样本 ≥1000，Z-test/贝叶斯检验）
+  ⑤ promote → 参数自动全量生效（RuntimeConfig 更新）
+     rollback → 回退参数，记录失败原因
         ↓
-  ⑥ 自动上线或回滚 → EventBus.publish('badcase:prompt_optimized')
+  ⑥ 评估器重新打分 → 循环
 ```
 
-**触发机制增强**：
-- **分阶段阈值**：上线初期降低到 N=10，避免冷启动期数周无法触发
-- **定时触发**：即使 BadCase 不足 N 条，每周强制运行一次飞轮分析
-- **手动触发**：运营可通过 Admin API 随时触发飞轮（`POST /admin/flywheel/trigger`）
-- **冷启动过滤**：`coldStartStage === 'cold'` 的用户产生的 BadCase 不进入飞轮（样本质量不够）
+**触发机制**：
+- **指标驱动**：评估器检测到推荐准确率周环比下降 > 5% 时自动触发
+- **定时触发**：每周强制运行一次飞轮分析，即使指标稳定
+- **手动触发**：`POST /admin/flywheel/trigger`
+- **冷启动过滤**：`coldStartStage === 'cold'` 的用户产生的 BadCase 不进入飞轮
 
 ### 2.6 Agent Workflow 路由
 

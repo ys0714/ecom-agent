@@ -76,17 +76,18 @@
 | P5-5 | done | ✅ | `subscribers/config-watch-subscriber.ts` |
 | P5-6 | done | ✅ | `infra/observability/otel-setup.ts` |
 
-### Phase 6：数据飞轮（周 11-12）
+### Phase 6：数据飞轮重构（周 11-12）
 
-> **交付物**：BadCase 自动识别 → Prompt 优化 → A/B 验证闭环。
+> **交付物**：Trace 采集 → 自动评估器 → 根因归因 → 旋钮调优 → A/B 验证闭环。
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P6-1 | done | ✅ | `services/data-flywheel/badcase-collector.ts` |
-| P6-2 | done | ✅ | `services/data-flywheel/badcase-analyzer.ts` |
-| P6-3 | done | ✅ | `services/data-flywheel/prompt-*.ts` |
-| P6-4 | done | ✅ | `services/data-flywheel/ab-experiment.ts` |
-| P6-5 | done | ✅ | `subscribers/auto-prompt-subscriber.ts` |
+| P6-1 | BadCase Trace 采集重构（携带完整决策上下文：Prompt 版本、画像快照、匹配详情） | 🔧 | `services/data-flywheel/badcase-collector.ts` |
+| P6-2 | SpecRecommendationEvaluator（推荐准确率、首次接受率、覆盖率有解率、fallback 率） | 📋 | `services/data-flywheel/evaluator.ts` |
+| P6-3 | 多维根因归因引擎（替换硬编码映射，基于 Trace 上下文自动归因 6 种失败模式） | 🔧 | `services/data-flywheel/badcase-analyzer.ts` |
+| P6-4 | 旋钮调优器（定位失败模式 → 对应参数旋钮 → 生成调优方案） | 📋 | `services/data-flywheel/tuning-advisor.ts` |
+| P6-5 | A/B 实验增强（明确 success 定义：spec_accepted / session_purchase） | 🔧 | `services/data-flywheel/ab-experiment.ts` |
+| P6-6 | 飞轮闭环集成测试（Trace→评估→归因→调优→A/B→回流） | 📋 | `tests/data-flywheel.test.ts` |
 
 ### Phase 7：更多 Workflow + 生产加固（周 13+）
 
