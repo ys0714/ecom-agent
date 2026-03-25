@@ -39,15 +39,15 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| M3-1 | done | ✅ | `services/model-slot/model-provider.ts` |
-| M3-2 | done | ✅ | `services/model-slot/model-slot-manager.ts` |
-| M3-3 | done | ✅ | `services/model-slot/inference-cache.ts` |
-| M3-4 | done | ✅ | `services/model-slot/ab-router.ts` |
-| M3-5 | done | ✅ | `application/workflow/intent-router.ts` |
-| M3-6 | done | ✅ | `application/workflow/workflow-graph.ts` |
-| M3-7 | done | ✅ | `application/workflow/product-consult.ts` |
-| M3-8 | done | ✅ | `application/agent.ts` |
-| M3-9 | done | ✅ | `tests/model-slot.test.ts`, `tests/workflow.test.ts` |
+| M3-1 | ModelProvider（HTTP + cockatiel 断路器/重试/超时） | ✅ | `services/model-slot/model-provider.ts` |
+| M3-2 | ModelSlotManager（注册/注销/热切换/fallback） | ✅ | `services/model-slot/model-slot-manager.ts` |
+| M3-3 | InferenceCache（Redis 缓存） | ✅ | `services/model-slot/inference-cache.ts` |
+| M3-4 | ABRouter（确定性 hash 分桶） | ✅ | `services/model-slot/ab-router.ts` |
+| M3-5 | IntentRouter（规则 + LLM 双模式） | ✅ | `application/workflow/intent-router.ts` |
+| M3-6 | WorkflowGraph 声明式图引擎 | ✅ | `application/workflow/workflow-graph.ts` |
+| M3-7 | ProductConsultWorkflow | ✅ | `application/workflow/product-consult.ts` |
+| M3-8 | Agent 主循环（Workflow 调度） | ✅ | `application/agent.ts` |
+| M3-9 | 模型槽位 + Workflow 测试 | ✅ | `tests/model-slot.test.ts`, `tests/workflow.test.ts` |
 
 ### Phase 4：安全护栏 + API 层（周 7-8）
 
@@ -55,13 +55,13 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P4-1 | done | ✅ | `application/guardrails/input-guard.ts` |
-| P4-2 | done | ✅ | `application/guardrails/execution-guard.ts` |
-| P4-3 | done | ✅ | `application/guardrails/output-guard.ts` |
-| P4-4 | done | ✅ | `presentation/server.ts` |
-| P4-5 | done | ✅ | `presentation/api/conversation-handler.ts` |
-| P4-6 | done | ✅ | `presentation/api/*.ts` |
-| P4-7 | done | ✅ | `tests/e2e.test.ts` |
+| P4-1 | Guardrails 输入层（注入检测 + 敏感词 + 身份绑定） | ✅ | `application/guardrails/input-guard.ts` |
+| P4-2 | Guardrails 执行层（工具权限白名单 + 金额/频率限制） | ✅ | `application/guardrails/execution-guard.ts` |
+| P4-3 | Guardrails 输出层（PII 脱敏 + 承诺合规） | ✅ | `application/guardrails/output-guard.ts` |
+| P4-4 | Fastify 服务初始化 | ✅ | `presentation/server.ts` |
+| P4-5 | ConversationHandler（对话 API + Guardrails 集成） | ✅ | `presentation/api/conversation-handler.ts` |
+| P4-6 | ProfileHandler + AdminHandler | ✅ | `presentation/api/*.ts` |
+| P4-7 | API 集成测试 | ✅ | `tests/presentation/api.test.ts` |
 
 ### Phase 5：EventBus 加固 + Subscriber 体系（周 9-10）
 
@@ -69,12 +69,12 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P5-1 | done | ✅ | `domain/event-bus.ts` |
-| P5-2 | done | ✅ | `subscribers/session-log-subscriber.ts` |
-| P5-3 | done | ✅ | `subscribers/metrics-subscriber.ts` |
-| P5-4 | done | ✅ | `subscribers/alert-subscriber.ts` |
-| P5-5 | done | ✅ | `subscribers/config-watch-subscriber.ts` |
-| P5-6 | done | ✅ | `infra/observability/otel-setup.ts` |
+| P5-1 | EventBus 事件分级（Critical/Normal/Low）+ 错误隔离 + 死信队列 | ✅ | `domain/event-bus.ts` |
+| P5-2 | SessionLogSubscriber（JSONL 持久化） | ✅ | `subscribers/session-log-subscriber.ts` |
+| P5-3 | MetricsSubscriber（推理延迟/降级率/拦截率） | ✅ | `subscribers/metrics-subscriber.ts` |
+| P5-4 | AlertSubscriber（连续降级告警） | ✅ | `subscribers/alert-subscriber.ts` |
+| P5-5 | ConfigWatchSubscriber（配置热更新） | ✅ | `subscribers/config-watch-subscriber.ts` |
+| P5-6 | OTel SDK 初始化（可选依赖，graceful skip） | ✅ | `infra/observability/otel-setup.ts` |
 
 ### Phase 6：数据飞轮重构（周 11-12）
 
@@ -95,11 +95,8 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P7-1 | done | ✅ | `application/workflow/*.ts` |
-| P7-2 | done | ✅ | `services/evaluation/llm-judge.ts` |
-| P7-3 | done | ✅ | `services/model-slot/model-provider.ts` |
-| P7-4 | done | ✅ | `tests/benchmark/` |
-| P7-5 | done | ✅ | `infra/adapters/logger.ts` |
+| P7-1 | AfterSale / Logistics / Complaint Workflow | ✅ | `application/workflow/*.ts` |
+| P7-2 | LLM-as-Judge 对话质量评估 | ✅ | `services/evaluation/llm-judge.ts` |
 
 ### Phase 8：核心闭环集成（Last Mile Integration）
 
@@ -107,10 +104,10 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P8-1 | done | ✅ | `application/agent.ts` |
-| P8-2 | done | ✅ | `src/main.ts` |
-| P8-3 | done | ✅ | `presentation/cli/agent-cli.ts` |
-| P8-4 | done | ✅ | `application/services/session-manager.ts`, `presentation/api/conversation-handler.ts` |
-| P8-5 | done | ✅ | `tests/e2e/last-mile.test.ts` |
+| P8-1 | Agent.trySpecRecommendation 接通 ProductService + matchSpecs | ✅ | `application/agent.ts` |
+| P8-2 | Composition Root（main.ts 串联全部模块） | ✅ | `src/main.ts` |
+| P8-3 | CLI 接通真实画像构建流程 | ✅ | `presentation/cli/agent-cli.ts` |
+| P8-4 | SessionManager + JSONL 会话持久化 | ✅ | `application/services/session-manager.ts` |
+| P8-5 | 端到端闭环集成测试 | ✅ | `tests/e2e/last-mile.test.ts` |
 
 ---

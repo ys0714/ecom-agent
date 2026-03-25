@@ -1,6 +1,6 @@
 # Developer Specification (PROJECT_SPEC)
 
-> 版本：3.0 — 电商客服 Agent 用户特征画像系统深度技术规范（落地优化版）
+> 版本：3.1 — 电商客服 Agent 用户特征画像系统深度技术规范
 
 ## 目录
 
@@ -10,14 +10,14 @@
   - [2.2 轻量模型推理](#22-轻量模型推理--sftgrpo-微调-8b-替代-72b)（含 SFT/GRPO 全流程、评测、对话呈现）
   - [2.3 会话记忆与上下文管理](#23-会话记忆与上下文管理)（画像 Store + 滑动窗口）
   - [2.4 EventBus + Subscriber 运行时解耦](#24-eventbus--subscriber-运行时解耦)（含事件分级、错误隔离）
-  - [2.5 数据飞轮](#25-数据飞轮--badcase-autoprompt-自动优化)（含 Human-in-the-Loop、统计检验）
+  - [2.5 数据飞轮](#25-数据飞轮--analyzemeasureimprove-闭环)（Trace 采集 → 评估器 → 根因归因 → 旋钮调优）
   - [2.6 Agent Workflow 路由](#26-agent-workflow-路由)（声明式图结构）
   - [2.7 Agent Guardrails 安全护栏](#27-agent-guardrails-安全护栏)（输入/执行/输出三层防护）
 - [3. 技术选型](#3-技术选型)
 - [4. 测试与评估方案](#4-测试与评估方案)（含在线评估指标、SLO、LLM-as-Judge）
 - [5. 系统架构与模块设计](#5-系统架构与模块设计)（含 DI、错误处理、可观测性、配置管理、容量规划）
 - [6. 项目排期](#6-项目排期)（纵向切片 MVP 交付）
-- [7. 可扩展性与未来展望](#7-可扩展性与未来展望)（含分层记忆演进、冲突仲裁、Prompt 引擎）
+- [7. 可扩展性与未来展望](#7-可扩展性与未来展望)
 
 ---
 
@@ -1624,14 +1624,13 @@ sdk.start();
 
 | 参数 | 默认值 | 热更新 | 说明 |
 |------|--------|--------|------|
-| `DECAY_LAMBDA` | 0.1 | 支持 | 时间衰减系数 |
-| `OVERRIDE_THRESHOLD` | 1.2 | 支持 | 冲突覆盖阈值 |
-| `L3_WINDOW_SIZE` | 10 | 支持 | 滑动窗口大小 |
+| `SLIDING_WINDOW_SIZE` | 10 | 支持 | 对话滑动窗口大小 |
 | `BADCASE_BATCH_SIZE` | 50 | 支持 | 飞轮触发批次 |
 | `AB_TRAFFIC_RATIO` | 0.1 | 支持 | A/B 灰度比例 |
-| `SOURCE_WEIGHTS` | `{order:1.0, explicit:0.8, ...}` | 支持 | 数据源权重 |
+| `MIN_RECOMMEND_CONFIDENCE` | 0.5 | 支持 | 推荐最低置信度阈值 |
+| `FEATURE_PRIORITY` | `[height,weight,bust,waistline,footLength]` | 支持 | 覆盖率匹配特征优先级 |
 | `REDIS_URL` | - | 不支持 | 需重启 |
-| `MODEL_ENDPOINTS` | - | 不支持 | 需重启（通过模型热切换替代） |
+| `LLM_BASE_URL` / `LLM_MODEL_ID` | - | 不支持 | 需重启（通过模型热切换替代） |
 
 配置变更通过 `ConfigWatchSubscriber` 推送到相关模块，模块自行响应更新。
 
@@ -1697,15 +1696,15 @@ sdk.start();
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| M3-1 | done | ✅ | `services/model-slot/model-provider.ts` |
-| M3-2 | done | ✅ | `services/model-slot/model-slot-manager.ts` |
-| M3-3 | done | ✅ | `services/model-slot/inference-cache.ts` |
-| M3-4 | done | ✅ | `services/model-slot/ab-router.ts` |
-| M3-5 | done | ✅ | `application/workflow/intent-router.ts` |
-| M3-6 | done | ✅ | `application/workflow/workflow-graph.ts` |
-| M3-7 | done | ✅ | `application/workflow/product-consult.ts` |
-| M3-8 | done | ✅ | `application/agent.ts` |
-| M3-9 | done | ✅ | `tests/model-slot.test.ts`, `tests/workflow.test.ts` |
+| M3-1 | ModelProvider（HTTP + cockatiel 断路器/重试/超时） | ✅ | `services/model-slot/model-provider.ts` |
+| M3-2 | ModelSlotManager（注册/注销/热切换/fallback） | ✅ | `services/model-slot/model-slot-manager.ts` |
+| M3-3 | InferenceCache（Redis 缓存） | ✅ | `services/model-slot/inference-cache.ts` |
+| M3-4 | ABRouter（确定性 hash 分桶） | ✅ | `services/model-slot/ab-router.ts` |
+| M3-5 | IntentRouter（规则 + LLM 双模式） | ✅ | `application/workflow/intent-router.ts` |
+| M3-6 | WorkflowGraph 声明式图引擎 | ✅ | `application/workflow/workflow-graph.ts` |
+| M3-7 | ProductConsultWorkflow | ✅ | `application/workflow/product-consult.ts` |
+| M3-8 | Agent 主循环（Workflow 调度） | ✅ | `application/agent.ts` |
+| M3-9 | 模型槽位 + Workflow 测试 | ✅ | `tests/model-slot.test.ts`, `tests/workflow.test.ts` |
 
 ### Phase 4：安全护栏 + API 层（周 7-8）
 
@@ -1713,13 +1712,13 @@ sdk.start();
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P4-1 | done | ✅ | `application/guardrails/input-guard.ts` |
-| P4-2 | done | ✅ | `application/guardrails/execution-guard.ts` |
-| P4-3 | done | ✅ | `application/guardrails/output-guard.ts` |
-| P4-4 | done | ✅ | `presentation/server.ts` |
-| P4-5 | done | ✅ | `presentation/api/conversation-handler.ts` |
-| P4-6 | done | ✅ | `presentation/api/*.ts` |
-| P4-7 | done | ✅ | `tests/e2e.test.ts` |
+| P4-1 | Guardrails 输入层（注入检测 + 敏感词 + 身份绑定） | ✅ | `application/guardrails/input-guard.ts` |
+| P4-2 | Guardrails 执行层（工具权限白名单 + 金额/频率限制） | ✅ | `application/guardrails/execution-guard.ts` |
+| P4-3 | Guardrails 输出层（PII 脱敏 + 承诺合规） | ✅ | `application/guardrails/output-guard.ts` |
+| P4-4 | Fastify 服务初始化 | ✅ | `presentation/server.ts` |
+| P4-5 | ConversationHandler（对话 API + Guardrails 集成） | ✅ | `presentation/api/conversation-handler.ts` |
+| P4-6 | ProfileHandler + AdminHandler | ✅ | `presentation/api/*.ts` |
+| P4-7 | API 集成测试 | ✅ | `tests/presentation/api.test.ts` |
 
 ### Phase 5：EventBus 加固 + Subscriber 体系（周 9-10）
 
@@ -1727,12 +1726,12 @@ sdk.start();
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P5-1 | done | ✅ | `domain/event-bus.ts` |
-| P5-2 | done | ✅ | `subscribers/session-log-subscriber.ts` |
-| P5-3 | done | ✅ | `subscribers/metrics-subscriber.ts` |
-| P5-4 | done | ✅ | `subscribers/alert-subscriber.ts` |
-| P5-5 | done | ✅ | `subscribers/config-watch-subscriber.ts` |
-| P5-6 | done | ✅ | `infra/observability/otel-setup.ts` |
+| P5-1 | EventBus 事件分级（Critical/Normal/Low）+ 错误隔离 + 死信队列 | ✅ | `domain/event-bus.ts` |
+| P5-2 | SessionLogSubscriber（JSONL 持久化） | ✅ | `subscribers/session-log-subscriber.ts` |
+| P5-3 | MetricsSubscriber（推理延迟/降级率/拦截率） | ✅ | `subscribers/metrics-subscriber.ts` |
+| P5-4 | AlertSubscriber（连续降级告警） | ✅ | `subscribers/alert-subscriber.ts` |
+| P5-5 | ConfigWatchSubscriber（配置热更新） | ✅ | `subscribers/config-watch-subscriber.ts` |
+| P5-6 | OTel SDK 初始化（可选依赖，graceful skip） | ✅ | `infra/observability/otel-setup.ts` |
 
 ### Phase 6：数据飞轮重构（周 11-12）
 
@@ -1753,11 +1752,8 @@ sdk.start();
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P7-1 | done | ✅ | `application/workflow/*.ts` |
-| P7-2 | done | ✅ | `services/evaluation/llm-judge.ts` |
-| P7-3 | done | ✅ | `services/model-slot/model-provider.ts` |
-| P7-4 | done | ✅ | `tests/benchmark/` |
-| P7-5 | done | ✅ | `infra/adapters/logger.ts` |
+| P7-1 | AfterSale / Logistics / Complaint Workflow | ✅ | `application/workflow/*.ts` |
+| P7-2 | LLM-as-Judge 对话质量评估 | ✅ | `services/evaluation/llm-judge.ts` |
 
 ### Phase 8：核心闭环集成（Last Mile Integration）
 
@@ -1765,96 +1761,50 @@ sdk.start();
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P8-1 | done | ✅ | `application/agent.ts` |
-| P8-2 | done | ✅ | `src/main.ts` |
-| P8-3 | done | ✅ | `presentation/cli/agent-cli.ts` |
-| P8-4 | done | ✅ | `application/services/session-manager.ts`, `presentation/api/conversation-handler.ts` |
-| P8-5 | done | ✅ | `tests/e2e/last-mile.test.ts` |
+| P8-1 | Agent.trySpecRecommendation 接通 ProductService + matchSpecs | ✅ | `application/agent.ts` |
+| P8-2 | Composition Root（main.ts 串联全部模块） | ✅ | `src/main.ts` |
+| P8-3 | CLI 接通真实画像构建流程 | ✅ | `presentation/cli/agent-cli.ts` |
+| P8-4 | SessionManager + JSONL 会话持久化 | ✅ | `application/services/session-manager.ts` |
+| P8-5 | 端到端闭环集成测试 | ✅ | `tests/e2e/last-mile.test.ts` |
 
 ---
 
 ## 7. 可扩展性与未来展望
 
-> 以下为 MVP 交付后的演进方向。部分能力（画像冲突仲裁、分层记忆、Prompt 模板引擎）在当前版本中有意简化，待业务验证后按需引入。
+> 以下为经过业务验证后值得投入的演进方向，按优先级排序。不含脱离当前业务场景的假想需求。
 
-### 7.1 架构层面
+### 7.1 短期演进（下一季度可落地）
+
+| 方向 | 当前状态 | 演进目标 | 触发条件 |
+|------|---------|---------|---------|
+| **外部服务对接** | MockOrderService / MockProductService | 对接真实订单 API + 商品 API | 进入灰度测试时 |
+| **Redis 生产部署** | InMemoryRedisClient | 对接真实 Redis（画像持久化 + 推理缓存） | 部署到测试环境时 |
+| **画像解释性** | 推荐结果含 reasoning 文本 | 结构化推荐理由（"身高匹配 90%，体重匹配 85%"） | 已部分实现，需优化展示 |
+| **飞轮自动回流** | TuningAdvisor 输出建议但不自动执行 | 参数调优通过 RuntimeConfig 自动生效 | 飞轮数据积累到 500+ badcase |
+| **OTel 生产接入** | SDK 占位（graceful skip） | 安装 OTel 包 + 接入 Jaeger/Prometheus | 部署到生产时 |
+
+### 7.2 中期演进（业务验证后按需引入）
+
+| 方向 | 说明 | 引入时机 |
+|------|------|---------|
+| **画像冲突仲裁** | 对话中主观偏好（颜色/风格/价位）可能前后矛盾，需置信度 + 时间衰减仲裁 | 飞轮分析发现 `presentation_issue` 频率 > 20% 且根因是偏好冲突 |
+| **微调数据飞轮** | BadCase 不仅调旋钮，还自动生成 SFT 训练数据，增量微调 8B 模型 | 旋钮调优的边际收益递减时（准确率提升 < 1%/周） |
+| **群体画像** | 基于用户聚类的群体画像，冷启动用户 fallback | 飞轮分析发现 `cold_start_insufficient` 持续占比 > 30% |
+| **Prompt 版本管理** | 多 Prompt 变体灰度发布，运营可管理 | Prompt 变体超过 5 个，且需要非开发人员编辑 |
+
+### 7.3 长期架构演进
 
 | 方向 | 当前设计 | 演进路径 |
 |------|---------|---------|
-| **模型多元化** | 标准 ModelSlot 接口，支持 8B/72B | → 接入更多模型（DeepSeek/GLM）→ 多任务专精模型矩阵 |
-| **画像存储** | RedisJSON + JSON 文件 | → SQLite（单机增强）→ PostgreSQL + 向量索引（企业级） |
-| **事件持久化** | 内存 EventBus | → Redis Streams（分布式 Subscriber）→ Kafka（高吞吐） |
-| **推理服务** | vLLM 单机 | → Triton Inference Server → KServe（K8s 原生） |
-| **分布式部署** | 单进程 | → 微服务拆分（画像服务 / 推理服务 / 对话服务） |
-| **多租户** | 单租户 | → 画像/Prompt/模型配置按 tenantId 隔离 → 多商家 SaaS 化 |
+| **画像存储** | RedisJSON + JSON 文件 | → PostgreSQL（结构化查询 + 画像分析） |
+| **事件持久化** | 内存 EventBus + JSONL 日志 | → Redis Streams（分布式 Subscriber） |
+| **分布式部署** | 单进程 Fastify | → 画像服务 / 推理服务 / 对话服务拆分 |
+| **模型多元化** | Qwen 8B/72B 双槽位 | → 多模型矩阵（不同任务用不同专精模型） |
 
-### 7.2 延迟引入的能力（当前有意简化）
-
-#### 7.2.1 画像冲突仲裁机制
-
-当前系统中用户画像的核心数据（体重/身高/尺码等 8 种身体特征）来自历史订单的客观数据，在对话中不会冲突。如果未来扩展到主观偏好维度（颜色、风格、价位），可引入置信度打分+时间衰减的仲裁机制：
-
-| 能力 | 说明 |
-|------|------|
-| **ConflictDetector** | 冲突分类：contradiction / refinement / expansion / neutral |
-| **加权置信度仲裁** | 数据源权重(40%) × 时间衰减(25%) × 订单支撑度(20%) × 表达强度(15%) |
-| **震荡抑制** | 窗口冷却（同维度 N 轮内连续冲突不更新）+ 回弹检测（A→B→A 模式） |
-| **人工介入** | 冲突次数 > 5 次标记为"需人工确认" |
-
-> 引入时机：当对话中主观偏好信号成为推荐质量瓶颈时（可通过 BadCase 分析识别）。
-
-#### 7.2.2 分层记忆架构
-
-当前采用"画像 Store + 滑动窗口"简洁方案。如果未来单次会话超过 50 轮（如复杂售后场景），可演进为三层分层记忆：
-
-| 层 | 说明 | 引入条件 |
-|-----|------|---------|
-| **L1-Preference** | 跨会话持久画像（当前已有） | 已实现 |
-| **L2-Session** | 完整会话历史 + 摘要压缩 | 单次会话平均超过 30 轮 |
-| **L3-Window** | 滑动窗口（当前已有） | 已实现 |
-| **层间事件通信** | L3 溢出 → EventBus → L2 压缩 → L1 更新 | 需要自动化层间流转时 |
-
-参考 Letta(MemGPT) 的 Core/Recall/Archival 三层和 Mem0 的 ADD/UPDATE/DELETE/NOOP 操作模型。
-
-#### 7.2.3 结构化 Prompt Template Engine
-
-当前 MVP 使用 TypeScript 模板字面量拼接 Prompt。如果 Prompt 变体超过 10 个，且需要非开发人员（如运营）管理 Prompt，可引入结构化引擎：
-
-| 能力 | 说明 |
-|------|------|
-| **PromptSegment 组合** | 多片段按 category 分组 + priority 排序 + condition 条件渲染 |
-| **变量类型校验** | 缺少必填变量报错，防止运行时拼接错误 |
-| **版本化管理** | 每个 Segment 独立版本化，支持灰度发布 |
-| **Prompt Caching** | 标记不变片段，配合 LLM Provider 的 Prompt Caching 能力 |
-
-参考 DSPy 的自动化 Prompt 搜索思路作为更远期的演进方向。
-
-### 7.3 功能层面
+### 7.4 监控运维
 
 | 方向 | 说明 |
 |------|------|
-| **多模态画像** | 从纯文本扩展到图片评论、视频浏览行为的画像维度（通过 ProfileDimensionPlugin 扩展） |
-| **群体画像** | 基于用户聚类的群体画像，冷启动 L0 阶段 fallback 到群体画像 |
-| **实时特征** | 接入实时行为流（浏览、收藏、加购），补充非订单维度 |
-| **画像解释性** | 为每个推荐附加"为什么推荐这个规格"的自然语言解释 |
-| **跨渠道画像** | 整合 APP、小程序、H5 等多渠道的用户行为数据 |
-| **隐私合规** | 画像数据脱敏、用户数据删除权（GDPR Right to Erasure）、画像有效期控制 |
-
-### 7.4 数据飞轮增强
-
-| 方向 | 说明 |
-|------|------|
-| **主动学习** | 在不确定性高的场景主动向用户提问确认偏好 |
-| **多目标优化** | Prompt 优化扩展到多目标（准确率 + 多样性 + 用户满意度） |
-| **微调数据飞轮** | BadCase 自动生成 SFT 训练数据，定期增量微调 8B 模型 |
-| **在线学习** | 从 batch 优化进化到在线实时 Prompt 调整（Bandit 算法） |
-
-### 7.5 监控与运维
-
-| 方向 | 说明 |
-|------|------|
-| **Dashboard** | Web 可视化面板：画像分布、模型指标、飞轮迭代记录、Guardrail 拦截统计 |
-| **OTel 全量接入** | 后续接入 OTel Logs，实现 Metrics+Traces+Logs 三支柱统一 |
-| **告警升级** | 从简单规则告警升级到 AIOps 异常检测 |
-| **Chaos Engineering** | 模型故障注入、Redis 故障注入、验证弹性策略正确性 |
-| **配置审计** | 运行时配置热更新的完整审计日志，支持配置回滚 |
+| **Dashboard** | Web 可视化面板：推荐准确率趋势、飞轮迭代记录、Guardrail 拦截统计 |
+| **OTel Logs** | 接入 OTel Logs API，实现 Metrics + Traces + Logs 三支柱统一 |
+| **配置审计** | 运行时参数变更的审计日志 + 一键回滚 |

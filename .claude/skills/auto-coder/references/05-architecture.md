@@ -414,14 +414,13 @@ sdk.start();
 
 | 参数 | 默认值 | 热更新 | 说明 |
 |------|--------|--------|------|
-| `DECAY_LAMBDA` | 0.1 | 支持 | 时间衰减系数 |
-| `OVERRIDE_THRESHOLD` | 1.2 | 支持 | 冲突覆盖阈值 |
-| `L3_WINDOW_SIZE` | 10 | 支持 | 滑动窗口大小 |
+| `SLIDING_WINDOW_SIZE` | 10 | 支持 | 对话滑动窗口大小 |
 | `BADCASE_BATCH_SIZE` | 50 | 支持 | 飞轮触发批次 |
 | `AB_TRAFFIC_RATIO` | 0.1 | 支持 | A/B 灰度比例 |
-| `SOURCE_WEIGHTS` | `{order:1.0, explicit:0.8, ...}` | 支持 | 数据源权重 |
+| `MIN_RECOMMEND_CONFIDENCE` | 0.5 | 支持 | 推荐最低置信度阈值 |
+| `FEATURE_PRIORITY` | `[height,weight,bust,waistline,footLength]` | 支持 | 覆盖率匹配特征优先级 |
 | `REDIS_URL` | - | 不支持 | 需重启 |
-| `MODEL_ENDPOINTS` | - | 不支持 | 需重启（通过模型热切换替代） |
+| `LLM_BASE_URL` / `LLM_MODEL_ID` | - | 不支持 | 需重启（通过模型热切换替代） |
 
 配置变更通过 `ConfigWatchSubscriber` 推送到相关模块，模块自行响应更新。
 
