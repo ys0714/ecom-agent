@@ -1708,44 +1708,47 @@ result.match(
 | P11-6 | CORS 支持 + Fastify 代理配置（Next.js dev server 跨域访问） | ✅ | `presentation/server.ts` |
 | P11-7 | Web UI 集成测试 | 📋 | `web/` 内部测试 |
 
+### Phase 12：核心深度修复（Production Hardening）
+
+> **交付物**：三个聚焦点从 MVP 升级到生产级——消除死代码、串通断裂链路、闭合飞轮。
+> 详细审计见 `.claude/skills/tech-researcher/references/core-production-gaps-audit.md`
+
+| 模块 | 任务 | 状态 | 关键文件 |
+|------|------|------|---------|
+| P12-1 | Agent 传真实 SpecMatchResult（含 featureCoverages）给 ExplanationGenerator | 📋 | `application/agent.ts` |
+| P12-2 | Agent 中 PreferenceDetector 接入 LLM client（启用混合路由） | 📋 | `application/agent.ts`, `src/main.ts` |
+| P12-3 | 订单解析从正则改为调 LLM（profile_extraction 槽位，与 SPEC 2.2 对齐） | 📋 | `services/profile-engine/order-analyzer.ts` |
+| P12-4 | 飞轮触发入口（定时器 + POST /api/admin/flywheel/trigger 真正执行） | 📋 | `application/agent.ts`, `presentation/api/admin-handler.ts` |
+| P12-5 | TuningAdvisor.apply()（通过 ConfigWatchSubscriber 自动写入参数变更） | 📋 | `services/data-flywheel/tuning-advisor.ts` |
+| P12-6 | 评估器接入 Agent 主循环（推荐后 recordOutcome 追踪结果） | 📋 | `application/agent.ts`, `services/data-flywheel/evaluator.ts` |
+| P12-7 | 覆盖率算法输入校验（min<=max, audience 一致性, 平局处理） | 📋 | `services/profile-engine/spec-inference.ts` |
+| P12-8 | 深度修复测试（解释真实数据 + 混合偏好 + 飞轮闭环 + 校验） | 📋 | `tests/` |
+
 ---
 
 ## 7. 可扩展性与未来展望
 
-> 以下为经过业务验证后值得投入的演进方向，按优先级排序。不含脱离当前业务场景的假想需求。
+> 仅保留与三个核心技术点（画像引擎、数据飞轮、上下文管理与仲裁）直接相关的演进方向。
 
-### 7.1 短期演进（下一季度可落地）
+### 7.1 短期演进
 
-| 方向 | 当前状态 | 演进目标 | 触发条件 |
-|------|---------|---------|---------|
-| **外部服务对接** | MockOrderService / MockProductService | 对接真实订单 API + 商品 API | 进入灰度测试时 |
-| **Redis 生产部署** | InMemoryRedisClient | 对接真实 Redis（画像持久化 + 推理缓存） | 部署到测试环境时 |
-| **画像解释性增强** | 三层结构化解释已实现 | 增加社会证明（"相似体型用户 80% 选了 M 码"） | 有用户反馈数据后 |
-| **飞轮自动回流** | TuningAdvisor 输出建议但不自动执行 | 参数调优通过 RuntimeConfig 自动生效 | 飞轮数据积累到 500+ badcase |
-| **OTel 生产接入** | SDK 占位（graceful skip） | 安装 OTel 包 + 接入 Jaeger/Prometheus | 部署到生产时 |
+| 方向 | 当前状态 | 目标 | 触发条件 |
+|------|---------|------|---------|
+| **外部服务对接** | Mock 适配器 | 对接真实订单 API + 商品 API | 进入灰度 |
+| **Redis 生产部署** | InMemoryRedisClient | 对接真实 Redis | 部署到测试环境 |
+| **飞轮自动回流** | TuningAdvisor 只建议 | 参数调优自动生效 | 500+ badcase |
+| **解释性社会证明** | 三层结构化解释 | "相似体型用户 80% 选了 M 码" | 有反馈数据后 |
 
-### 7.2 中期演进（业务验证后按需引入）
+### 7.2 中期演进
 
-| 方向 | 说明 | 引入时机 |
+| 方向 | 说明 | 触发条件 |
 |------|------|---------|
-| **画像冲突仲裁** | 对话中主观偏好（颜色/风格/价位）可能前后矛盾，需置信度 + 时间衰减仲裁 | 飞轮分析发现 `presentation_issue` 频率 > 20% 且根因是偏好冲突 |
-| **微调数据飞轮** | BadCase 不仅调旋钮，还自动生成 SFT 训练数据，增量微调 8B 模型 | 旋钮调优的边际收益递减时（准确率提升 < 1%/周） |
-| **群体画像** | 基于用户聚类的群体画像，冷启动用户 fallback | 飞轮分析发现 `cold_start_insufficient` 持续占比 > 30% |
-| **Prompt 版本管理** | 多 Prompt 变体灰度发布，运营可管理 | Prompt 变体超过 5 个，且需要非开发人员编辑 |
+| **微调数据飞轮** | BadCase 自动生成 SFT 数据，增量微调 8B | 旋钮调优收益递减 |
+| **群体画像** | 冷启动用户 fallback 到聚类群体画像 | cold_start 占比 > 30% |
 
-### 7.3 长期架构演进
+### 7.3 长期演进
 
-| 方向 | 当前设计 | 演进路径 |
-|------|---------|---------|
-| **画像存储** | RedisJSON + JSON 文件 | → PostgreSQL（结构化查询 + 画像分析） |
-| **事件持久化** | 内存 EventBus + JSONL 日志 | → Redis Streams（分布式 Subscriber） |
-| **分布式部署** | 单进程 Fastify | → 画像服务 / 推理服务 / 对话服务拆分 |
-| **模型多元化** | Qwen 8B/72B 双槽位 | → 多模型矩阵（不同任务用不同专精模型） |
-
-### 7.4 监控运维（远期增强）
-
-| 方向 | 说明 |
-|------|------|
-| **Prometheus/Grafana** | 引入 prom-client 暴露 Prometheus 指标，接入 Grafana 看板 |
-| **OTel 全链路** | 安装 OTel 包，自动插桩 HTTP/Redis/LLM，导出到 Jaeger |
-| **Chat UI 增强** | 对话历史持久化、多用户切换、SSE 流式输出 |
+| 方向 | 演进路径 |
+|------|---------|
+| **画像存储** | RedisJSON → PostgreSQL |
+| **事件持久化** | InMemory EventBus → Redis Streams |

@@ -152,4 +152,20 @@
 | P11-6 | CORS 支持 + Fastify 代理配置（Next.js dev server 跨域访问） | ✅ | `presentation/server.ts` |
 | P11-7 | Web UI 集成测试 | 📋 | `web/` 内部测试 |
 
+### Phase 12：核心深度修复（Production Hardening）
+
+> **交付物**：三个聚焦点从 MVP 升级到生产级——消除死代码、串通断裂链路、闭合飞轮。
+> 详细审计见 `.claude/skills/tech-researcher/references/core-production-gaps-audit.md`
+
+| 模块 | 任务 | 状态 | 关键文件 |
+|------|------|------|---------|
+| P12-1 | Agent 传真实 SpecMatchResult（含 featureCoverages）给 ExplanationGenerator | 📋 | `application/agent.ts` |
+| P12-2 | Agent 中 PreferenceDetector 接入 LLM client（启用混合路由） | 📋 | `application/agent.ts`, `src/main.ts` |
+| P12-3 | 订单解析从正则改为调 LLM（profile_extraction 槽位，与 SPEC 2.2 对齐） | 📋 | `services/profile-engine/order-analyzer.ts` |
+| P12-4 | 飞轮触发入口（定时器 + POST /api/admin/flywheel/trigger 真正执行） | 📋 | `application/agent.ts`, `presentation/api/admin-handler.ts` |
+| P12-5 | TuningAdvisor.apply()（通过 ConfigWatchSubscriber 自动写入参数变更） | 📋 | `services/data-flywheel/tuning-advisor.ts` |
+| P12-6 | 评估器接入 Agent 主循环（推荐后 recordOutcome 追踪结果） | 📋 | `application/agent.ts`, `services/data-flywheel/evaluator.ts` |
+| P12-7 | 覆盖率算法输入校验（min<=max, audience 一致性, 平局处理） | 📋 | `services/profile-engine/spec-inference.ts` |
+| P12-8 | 深度修复测试（解释真实数据 + 混合偏好 + 飞轮闭环 + 校验） | 📋 | `tests/` |
+
 ---
