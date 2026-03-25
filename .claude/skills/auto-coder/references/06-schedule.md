@@ -121,9 +121,9 @@
 | P9-3 | ConfidenceArbitrator（置信度打分仲裁） | ✅ | `services/profile-engine/confidence-arbitrator.ts` |
 | P9-4 | Agent 集成（解释+覆写+仲裁接入主循环） | ✅ | `application/agent.ts` |
 | P9-5 | 规则路径测试（解释质量+覆写识别+仲裁决策） | ✅ | `tests/application/explanation.test.ts`, `tests/application/preference.test.ts` |
-| P9-6 | done | ✅ | `services/profile-engine/model-preference-analyzer.ts` |
-| P9-7 | done | ✅ | `services/profile-engine/preference-detector.ts` |
-| P9-8 | done | ✅ | `tests/application/preference-hybrid.test.ts` |
+| P9-6 | ModelPreferenceAnalyzer LLM 深度路径（隐式偏好+主体判断+scope 识别） | ✅ | `services/profile-engine/model-preference-analyzer.ts` |
+| P9-7 | PreferenceDetector 混合路由（规则未匹配 → 调 LLM 路径） | ✅ | `services/profile-engine/preference-detector.ts` |
+| P9-8 | 混合路径测试（隐式偏好、主体判断、scope 判断、规则+LLM 路由） | ✅ | `tests/application/preference-hybrid.test.ts` |
 
 ### Phase 10：监控运维（Monitoring & Observability）
 
@@ -131,11 +131,11 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P10-1 | done | ✅ | `presentation/api/metrics-handler.ts` |
-| P10-2 | done | ✅ | `presentation/server.ts` |
-| P10-3 | done | ✅ | `infra/adapters/logger.ts` |
-| P10-4 | done | ✅ | `subscribers/config-watch-subscriber.ts` |
-| P10-5 | done | ✅ | `tests/presentation/monitoring.test.ts` |
+| P10-1 | `/api/metrics` 端点（暴露 MetricsSubscriber 业务指标） | ✅ | `presentation/api/metrics-handler.ts` |
+| P10-2 | 深度健康检查 `/health`（Redis 连通 + LLM 可用 + 磁盘可写） | ✅ | `presentation/server.ts` |
+| P10-3 | 结构化日志 Logger（JSON 格式 + level + timestamp + module） | ✅ | `infra/adapters/logger.ts` |
+| P10-4 | 配置审计日志（ConfigWatchSubscriber 记录参数变更到 JSONL） | ✅ | `subscribers/config-watch-subscriber.ts` |
+| P10-5 | 监控测试（健康检查 + 指标 + Logger + 配置审计） | ✅ | `tests/presentation/monitoring.test.ts` |
 
 ### Phase 11：Web Chat UI + 调试面板（Next.js）
 
@@ -144,12 +144,12 @@
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P11-1 | done | ✅ | `web/package.json`, `web/next.config.ts` |
-| P11-2 | done | ✅ | `web/app/page.tsx`, `web/components/ChatPanel.tsx` |
-| P11-3 | done | ✅ | `web/components/DebugPanel.tsx` |
-| P11-4 | done | ✅ | `presentation/api/conversation-handler.ts`, `application/agent.ts` |
-| P11-5 | done | ✅ | `web/components/ProfilePanel.tsx` |
-| P11-6 | done | ✅ | `presentation/server.ts` |
+| P11-1 | Next.js 项目初始化（`web/` 目录，TypeScript，Tailwind CSS） | ✅ | `web/package.json`, `web/next.config.ts` |
+| P11-2 | ChatPanel 组件（消息列表 + 输入框 + 发送，调 `/api/conversation`） | ✅ | `web/app/page.tsx`, `web/components/ChatPanel.tsx` |
+| P11-3 | DebugPanel 组件（画像快照 + 覆盖率匹配 + 偏好检测 + 仲裁决策） | ✅ | `web/components/DebugPanel.tsx` |
+| P11-4 | 后端 `/api/conversation` 增加 `debug` 字段（画像/匹配/偏好/仲裁中间数据） | ✅ | `presentation/api/conversation-handler.ts`, `application/agent.ts` |
+| P11-5 | ProfilePanel 组件（当前画像状态 + 冷启动阶段 + 维度完整度） | ✅ | `web/components/ProfilePanel.tsx` |
+| P11-6 | CORS 支持 + Fastify 代理配置（Next.js dev server 跨域访问） | ✅ | `presentation/server.ts` |
 | P11-7 | Web UI 集成测试 | 📋 | `web/` 内部测试 |
 
 ---

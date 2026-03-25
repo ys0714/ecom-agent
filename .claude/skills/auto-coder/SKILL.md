@@ -142,7 +142,17 @@ Round 3 still failing → STOP, show failure report to user
 
 ### 5. Persist
 
-1. **Update `PROJECT_SPEC.md`** (global file): change task status marker `📋` → `✅`
+1. **Update `PROJECT_SPEC.md`** (global file): change ONLY the status column from `📋` to `✅`.
+   **CRITICAL: preserve the original task description text. Do NOT replace it with "done".**
+   Example — change this:
+   ```
+   | M2-3 | 商品服务适配器（外部 API mock + 接口定义） | 📋 | `infra/adapters/product-service.ts` |
+   ```
+   To this (only the marker changes):
+   ```
+   | M2-3 | 商品服务适配器（外部 API mock + 接口定义） | ✅ | `infra/adapters/product-service.ts` |
+   ```
+
 2. **Re-sync**: `python3 .claude/skills/auto-coder/scripts/sync_spec.py --force`
 3. **Show summary & ask**:
 
