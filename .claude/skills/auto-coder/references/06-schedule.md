@@ -101,5 +101,16 @@
 | P7-4 | done | ✅ | `tests/benchmark/` |
 | P7-5 | done | ✅ | `infra/adapters/logger.ts` |
 
+### Phase 8：核心闭环集成（Last Mile Integration）
+
+> **交付物**：用户说话 → 画像匹配 → 返回推荐规格的端到端闭环真正跑通。
+
+| 模块 | 任务 | 状态 | 关键文件 |
+|------|------|------|---------|
+| P8-1 | done | ✅ | `application/agent.ts` |
+| P8-2 | done | ✅ | `src/main.ts` |
+| P8-3 | done | ✅ | `presentation/cli/agent-cli.ts` |
+| P8-4 | done | ✅ | `application/services/session-manager.ts`, `presentation/api/conversation-handler.ts` |
+| P8-5 | done | ✅ | `tests/e2e/last-mile.test.ts` |
 
 ---

@@ -1,17 +1,20 @@
 import type { FastifyInstance } from 'fastify';
 import type { Agent } from '../../application/agent.js';
 import type { ProfileStore } from '../../application/services/profile-store.js';
+import { SessionManager } from '../../application/services/session-manager.js';
 import { UserProfileEntity } from '../../domain/entities/user-profile.entity.js';
 import { InputGuard } from '../../application/guardrails/input-guard.js';
 import { OutputGuard } from '../../application/guardrails/output-guard.js';
-import type { Message } from '../../domain/types.js';
 
 const inputGuard = new InputGuard();
 const outputGuard = new OutputGuard();
 
-const sessions = new Map<string, { messages: Message[]; userId: string }>();
-
-export function registerConversationRoutes(app: FastifyInstance, agent: Agent, profileStore: ProfileStore) {
+export function registerConversationRoutes(
+  app: FastifyInstance,
+  agent: Agent,
+  profileStore: ProfileStore,
+  sessionManager: SessionManager,
+) {
   app.post<{
     Body: { sessionId: string; userId: string; message: string };
   }>('/api/conversation', async (request, reply) => {
@@ -30,11 +33,7 @@ export function registerConversationRoutes(app: FastifyInstance, agent: Agent, p
       });
     }
 
-    let session = sessions.get(sessionId);
-    if (!session) {
-      session = { messages: [], userId };
-      sessions.set(sessionId, session);
-    }
+    const session = sessionManager.getOrCreate(sessionId, userId);
 
     let profile = await profileStore.load(userId);
     if (!profile) {
@@ -47,6 +46,8 @@ export function registerConversationRoutes(app: FastifyInstance, agent: Agent, p
 
     const outputCheck = outputGuard.checkAndSanitize(result.reply);
     const finalReply = outputCheck.sanitizedContent ?? result.reply;
+
+    await sessionManager.persist(sessionId);
 
     return reply.send({
       sessionId,

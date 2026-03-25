@@ -76,6 +76,15 @@ export class Agent {
     let recommendation: SpecRecommendation | null = null;
     if (intentResult.intent === 'product_consult' && this.deps.productService) {
       recommendation = await this.trySpecRecommendation(profile, userText);
+      if (recommendation) {
+        const specLine = Object.entries(recommendation.selectedSpecs)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(', ');
+        reply += `\n\n【规格推荐】${specLine}（匹配度 ${Math.round(recommendation.confidence * 100)}%）`;
+        if (recommendation.reasoning) {
+          reply += `\n推荐依据：${recommendation.reasoning}`;
+        }
+      }
     }
 
     const assistantMsg: Message = { role: 'assistant', content: reply, timestamp: new Date().toISOString() };
@@ -110,10 +119,28 @@ ${GUARDRAIL_INSTRUCTIONS}
 
   private async trySpecRecommendation(
     profile: UserProfileEntity,
-    _userText: string,
+    userText: string,
   ): Promise<SpecRecommendation | null> {
-    // In full implementation, extract productId from user message and query ProductService.
-    // For now, return null — coverage matching is already tested via matchSpecs().
+    if (!this.deps.productService) return null;
+
+    const productId = this.extractProductId(userText);
+    if (!productId) return null;
+
+    const product = await this.deps.productService.getProductById(productId);
+    if (!product) return null;
+
+    return matchSpecs(profile, product);
+  }
+
+  private extractProductId(text: string): string | null {
+    const patterns = [
+      /(?:商品|产品|货号|编号|ID)[：:\s]*([a-zA-Z0-9_-]+)/i,
+      /\bp(\d+)\b/i,
+    ];
+    for (const p of patterns) {
+      const match = text.match(p);
+      if (match) return match[1].startsWith('p') ? match[1] : `p${match[1]}`;
+    }
     return null;
   }
 }
