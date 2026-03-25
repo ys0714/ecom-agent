@@ -1634,15 +1634,15 @@ sdk.start();
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| M3-1 | ModelProvider 抽象（HTTP + cockatiel 断路器/重试/超时） | 📋 | `services/model-slot/model-provider.ts` |
-| M3-2 | ModelSlotManager（注册/注销/热切换/健康检查/fallback） | 📋 | `services/model-slot/model-slot-manager.ts` |
-| M3-3 | InferenceCache（Redis 缓存，key=userId:productId:profileVersion） | 📋 | `services/model-slot/inference-cache.ts` |
-| M3-4 | ABRouter（A/B 流量路由，按百分比分流） | 📋 | `services/model-slot/ab-router.ts` |
-| M3-5 | IntentRouter（LLM 意图分类 + 规则快速路由双模式） | 📋 | `application/workflow/intent-router.ts` |
-| M3-6 | WorkflowGraph 声明式图结构引擎 + WorkflowRegistry | 📋 | `application/workflow/workflow-graph.ts` |
-| M3-7 | ProductConsultWorkflow（商品咨询主场景） | 📋 | `application/workflow/product-consult.ts` |
-| M3-8 | Agent 主循环（重构为 Workflow 调度模式） | 📋 | `application/agent.ts` |
-| M3-9 | 模型槽位 + Workflow 单元测试 | 📋 | `tests/model-slot.test.ts`, `tests/workflow.test.ts` |
+| M3-1 | done | ✅ | `services/model-slot/model-provider.ts` |
+| M3-2 | done | ✅ | `services/model-slot/model-slot-manager.ts` |
+| M3-3 | done | ✅ | `services/model-slot/inference-cache.ts` |
+| M3-4 | done | ✅ | `services/model-slot/ab-router.ts` |
+| M3-5 | done | ✅ | `application/workflow/intent-router.ts` |
+| M3-6 | done | ✅ | `application/workflow/workflow-graph.ts` |
+| M3-7 | done | ✅ | `application/workflow/product-consult.ts` |
+| M3-8 | done | ✅ | `application/agent.ts` |
+| M3-9 | done | ✅ | `tests/model-slot.test.ts`, `tests/workflow.test.ts` |
 
 ### Phase 4：安全护栏 + API 层（周 7-8）
 
