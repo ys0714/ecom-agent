@@ -1689,11 +1689,11 @@ sdk.start();
 
 | 模块 | 任务 | 状态 | 关键文件 |
 |------|------|------|---------|
-| P7-1 | AfterSaleWorkflow + LogisticsWorkflow + ComplaintWorkflow | 📋 | `application/workflow/*.ts` |
-| P7-2 | LLM-as-Judge 在线评估（每日采样打分 + 质量趋势看板） | 📋 | `services/evaluation/llm-judge.ts` |
-| P7-3 | 推理结果 batch 优化 + Redis Pipeline 批量操作 | 📋 | `services/model-slot/model-provider.ts` |
-| P7-4 | 性能 benchmark 测试套件 | 📋 | `tests/benchmark/` |
-| P7-5 | 结构化日志（OTel Logs API）+ 日志级别控制 | 📋 | `infra/adapters/logger.ts` |
+| P7-1 | done | ✅ | `application/workflow/*.ts` |
+| P7-2 | done | ✅ | `services/evaluation/llm-judge.ts` |
+| P7-3 | done | ✅ | `services/model-slot/model-provider.ts` |
+| P7-4 | done | ✅ | `tests/benchmark/` |
+| P7-5 | done | ✅ | `infra/adapters/logger.ts` |
 
 
 ---
