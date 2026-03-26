@@ -28,10 +28,11 @@ interface ChatPanelProps {
   apiBase: string;
   userId: string;
   sessionId: string;
+  productId?: string;
   onDebugUpdate?: (debug: DebugInfo) => void;
 }
 
-export default function ChatPanel({ apiBase, userId, sessionId, onDebugUpdate }: ChatPanelProps) {
+export default function ChatPanel({ apiBase, userId, sessionId, productId, onDebugUpdate }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -103,6 +104,22 @@ export default function ChatPanel({ apiBase, userId, sessionId, onDebugUpdate }:
       </div>
 
       <div className="border-t border-gray-700 p-4">
+        {productId && (
+          <div className="mb-3 flex gap-2">
+            <span className="text-xs text-gray-500 py-1">当前关注商品:</span>
+            <span className="text-xs bg-blue-900/30 text-blue-400 border border-blue-800/50 px-2 py-1 rounded">
+              {productId}
+            </span>
+            <button
+              onClick={() => {
+                setInput(`关于商品 ${productId}，我想问：`);
+              }}
+              className="text-xs text-blue-400 hover:text-blue-300 underline py-1"
+            >
+              带入商品
+            </button>
+          </div>
+        )}
         <div className="flex gap-2">
           <input
             type="text"

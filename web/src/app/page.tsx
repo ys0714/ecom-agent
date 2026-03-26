@@ -14,13 +14,25 @@ const MOCK_USERS = [
   { id: 'cold-user', name: '测试用户4 (冷启动/无画像)' },
 ];
 
+const MOCK_PRODUCTS = [
+  { id: 'p101', name: 'p101 - 连帽羽绒服 (女装)' },
+  { id: 'p102', name: 'p102 - 高腰直筒牛仔裤 (女装)' },
+  { id: 'p103', name: 'p103 - 轻便跑步鞋 (女鞋)' },
+  { id: 'p201', name: 'p201 - 商务休闲夹克 (男装)' },
+  { id: 'p202', name: 'p202 - 直筒休闲裤 (男装)' },
+  { id: 'p203', name: 'p203 - 商务正装皮鞋 (男鞋)' },
+  { id: 'p301', name: 'p301 - 儿童卡通卫衣 (童装)' },
+  { id: 'p302', name: 'p302 - 儿童运动鞋 (童鞋)' },
+];
+
 export default function Home() {
   const [debug, setDebug] = useState<DebugInfo | null>(null);
   const [showDebug, setShowDebug] = useState(true);
   const [userId, setUserId] = useState(MOCK_USERS[0].id);
+  const [productId, setProductId] = useState(MOCK_PRODUCTS[0].id);
   
   // Use a predictable but unique session ID per user selection to keep contexts isolated
-  const [sessionId, setSessionId] = useState(`web-${userId}-${Date.now()}`);
+  const [sessionId, setSessionId] = useState(() => `web-${MOCK_USERS[0].id}-${Date.now()}`);
 
   const handleUserChange = (newUserId: string) => {
     setUserId(newUserId);
@@ -37,17 +49,32 @@ export default function Home() {
           <p className="text-xs text-gray-500 mt-1">电商客服 Agent</p>
         </div>
         
-        <div className="p-4 border-b border-gray-700">
-          <label className="block text-xs font-medium text-gray-400 mb-2">切换测试用户</label>
-          <select 
-            value={userId}
-            onChange={(e) => handleUserChange(e.target.value)}
-            className="w-full bg-gray-800 border border-gray-600 text-sm rounded px-2 py-1 outline-none focus:border-blue-500"
-          >
-            {MOCK_USERS.map(u => (
-              <option key={u.id} value={u.id}>{u.name}</option>
-            ))}
-          </select>
+        <div className="p-4 border-b border-gray-700 bg-gray-800/50 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-2">切换测试用户</label>
+            <select 
+              value={userId}
+              onChange={(e) => handleUserChange(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-600 text-sm rounded px-2 py-1.5 outline-none focus:border-blue-500"
+            >
+              {MOCK_USERS.map(u => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-2">当前咨询商品</label>
+            <select 
+              value={productId}
+              onChange={(e) => setProductId(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-600 text-sm rounded px-2 py-1.5 outline-none focus:border-blue-500"
+            >
+              {MOCK_PRODUCTS.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -65,16 +92,12 @@ export default function Home() {
 
       {/* Center: Chat */}
       <div className="flex-1 flex flex-col relative">
-        {/* Mock Products Indicator */}
-        <div className="absolute top-0 right-0 p-3 flex gap-2 pointer-events-none opacity-50 z-10">
-           <div className="bg-gray-800 text-xs px-2 py-1 rounded border border-gray-700">商品池: p101~p103 (女), p201~p203 (男), p301~p302 (童)</div>
-        </div>
-
         <ChatPanel
           key={sessionId} // Force remount when session changes
           apiBase={API_BASE}
           userId={userId}
           sessionId={sessionId}
+          productId={productId}
           onDebugUpdate={setDebug}
         />
       </div>
