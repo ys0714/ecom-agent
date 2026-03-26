@@ -78,7 +78,7 @@ export default function ChatPanel({ apiBase, userId, sessionId, onDebugUpdate }:
         {messages.length === 0 && (
           <div className="text-gray-400 text-center mt-20">
             <p className="text-lg">电商客服 Agent</p>
-            <p className="text-sm mt-2">试试: &quot;商品p101哪个尺码适合我&quot; 或 &quot;帮我老公买件外套&quot;</p>
+            <p className="text-sm mt-2">试试: &quot;商品 p101 哪个尺码适合我&quot; 或 &quot;帮我看看 p202&quot;</p>
           </div>
         )}
         {messages.map((msg, i) => (
