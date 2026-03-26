@@ -100,10 +100,11 @@ describe('matchSpecs', () => {
 
     const result = matchSpecs(profile, product);
     expect(result).not.toBeNull();
-    expect(result!.matchMethod).toBe('coverage');
-    expect(result!.confidence).toBeGreaterThan(0);
-    expect(result!.selectedSpecs).toHaveProperty('size');
-    expect(result!.reasoning).toContain('匹配');
+    const recommendation = result!.recommendation;
+    expect(recommendation.matchMethod).toBe('coverage');
+    expect(recommendation.confidence).toBeGreaterThan(0);
+    expect(recommendation.selectedSpecs).toHaveProperty('size');
+    expect(recommendation.reasoning).toContain('匹配');
   });
 
   it('returns null when no spec overlaps with user profile', () => {
@@ -162,7 +163,7 @@ describe('matchSpecs', () => {
     ]);
 
     const result = matchSpecs(profile, product)!;
-    expect(result.propValueId).toBe('pv_B');
-    expect(result.confidence).toBeGreaterThan(0.5);
+    expect(result.recommendation.propValueId).toBe('pv_B');
+    expect(result.recommendation.confidence).toBeGreaterThan(0.5);
   });
 });

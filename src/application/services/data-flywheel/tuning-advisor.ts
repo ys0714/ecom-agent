@@ -1,5 +1,6 @@
 import type { FailureMode } from '../../../domain/types.js';
 import type { FailureModeCluster } from './badcase-analyzer.js';
+import type { ConfigWatchSubscriber } from '../../subscribers/config-watch-subscriber.js';
 
 export interface TuningRecommendation {
   knob: string;
@@ -78,5 +79,22 @@ export class TuningAdvisor {
       default:
         return null;
     }
+  }
+
+  async apply(recommendation: TuningRecommendation, configWatch: ConfigWatchSubscriber): Promise<boolean> {
+    if (recommendation.confidence === 'low') return false; // Too risky to auto-apply
+    
+    // Only apply numeric or boolean values automatically (not complex strings/objects)
+    if (typeof recommendation.suggestedValue === 'number' || typeof recommendation.suggestedValue === 'boolean') {
+      await configWatch.applyChange(
+        recommendation.knob,
+        recommendation.suggestedValue,
+        recommendation.currentValue,
+        'tuning_advisor'
+      );
+      return true;
+    }
+    
+    return false;
   }
 }

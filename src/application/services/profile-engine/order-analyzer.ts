@@ -1,5 +1,6 @@
-import type { Order, GenderSpecProfile, GenderRole, NumericRange } from '../../../domain/types.js';
+import type { Order, GenderSpecProfile, GenderRole, NumericRange, Message } from '../../../domain/types.js';
 import { UserProfileEntity } from '../../../domain/entities/user-profile.entity.js';
+import type { LLMClient } from '../../../infra/adapters/llm.js';
 
 interface ParsedSpec {
   role: GenderRole;
@@ -40,7 +41,7 @@ function inferRole(category: string): GenderRole {
   return 'female';
 }
 
-function parseSpecDescription(desc: string, category: string): ParsedSpec {
+function parseSpecDescriptionFallback(desc: string, category: string): ParsedSpec {
   const role = inferRole(category);
   return {
     role,
@@ -54,15 +55,41 @@ function parseSpecDescription(desc: string, category: string): ParsedSpec {
   };
 }
 
+async function parseSpecDescriptionWithLLM(desc: string, category: string, llm: LLMClient): Promise<ParsedSpec> {
+  const prompt = `你是一个专业的电商商品特征提取专家。请从以下商品信息中提取身体特征画像。
+商品类目：${category}
+商品规格描述：${desc}
+
+要求：
+1. 提取的信息必须是 JSON 格式。
+2. 包含字段：weight (体重区间，斤，如 [100, 120]), height (身高区间，cm，如 [160, 170]), waistline (腰围区间，cm), bust (胸围区间，cm), footLength (脚长区间，mm), size (上装尺码，如 "M"), bottomSize (下装尺码), shoeSize (鞋码)。如果没有相关信息，请省略该字段或设为 null。
+3. 尺码格式标准化：XXL 改为 2XL。
+4. 返回纯 JSON，不要有任何 markdown 标记（如 \`\`\`json ）。`;
+
+  try {
+    const response = await llm.chat([{ role: 'user', content: prompt, timestamp: '' }], { temperature: 0.1 });
+    const parsed = JSON.parse(response.trim());
+    return {
+      role: inferRole(category),
+      ...parsed
+    };
+  } catch (err) {
+    // Fallback to regex if LLM fails (e.g. invalid JSON)
+    return parseSpecDescriptionFallback(desc, category);
+  }
+}
+
 /**
  * Analyze orders and build a UserProfileEntity from purchase history.
  */
-export function buildProfileFromOrders(userId: string, orders: Order[]): UserProfileEntity {
+export async function buildProfileFromOrders(userId: string, orders: Order[], llmClient?: LLMClient): Promise<UserProfileEntity> {
   const entity = new UserProfileEntity(userId);
 
   for (const order of orders) {
     for (const item of order.items) {
-      const parsed = parseSpecDescription(item.specDescription, item.category);
+      const parsed = llmClient
+        ? await parseSpecDescriptionWithLLM(item.specDescription, item.category, llmClient)
+        : parseSpecDescriptionFallback(item.specDescription, item.category);
 
       const delta: Record<string, unknown> = { role: parsed.role };
       if (parsed.weight) delta.weight = parsed.weight;

@@ -12,7 +12,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 
 describe('OrderAnalyzer + ProfileBuilder', () => {
-  it('builds profile from order history', () => {
+  it('builds profile from order history', async () => {
     const orders: Order[] = [
       {
         orderId: 'o1', userId: 'u1',
@@ -34,7 +34,7 @@ describe('OrderAnalyzer + ProfileBuilder', () => {
       },
     ];
 
-    const profile = buildProfileFromOrders('u1', orders);
+    const profile = await buildProfileFromOrders('u1', orders);
     expect(profile.userId).toBe('u1');
 
     const female = profile.getGenderProfile('female')!;
@@ -45,13 +45,13 @@ describe('OrderAnalyzer + ProfileBuilder', () => {
     expect(profile.meta.totalOrders).toBe(2);
   });
 
-  it('handles empty order list gracefully', () => {
-    const profile = buildProfileFromOrders('u_empty', []);
+  it('handles empty order list gracefully', async () => {
+    const profile = await buildProfileFromOrders('u_empty', []);
     expect(profile.getColdStartStage()).toBe('cold');
     expect(profile.getCompleteness()).toBe(0);
   });
 
-  it('parses shoe size from order spec', () => {
+  it('parses shoe size from order spec', async () => {
     const orders: Order[] = [{
       orderId: 'o3', userId: 'u2',
       items: [{
@@ -62,7 +62,7 @@ describe('OrderAnalyzer + ProfileBuilder', () => {
       totalAmount: 299, createdAt: '2025-12-15T00:00:00Z', status: 'delivered',
     }];
 
-    const profile = buildProfileFromOrders('u2', orders);
+    const profile = await buildProfileFromOrders('u2', orders);
     const female = profile.getGenderProfile('female')!;
     expect(female.shoeSize).toEqual(['38']);
     expect(female.footLength).toEqual([240, 245]);
@@ -199,7 +199,7 @@ describe('Integration: MockOrderService → buildProfile → matchSpecs', () => 
     const orderService = new MockOrderService();
     const orders = await orderService.getOrdersByUserId('u001');
 
-    const profile = buildProfileFromOrders('u001', orders);
+    const profile = await buildProfileFromOrders('u001', orders);
     expect(profile.getColdStartStage()).not.toBe('cold');
 
     const { matchSpecs } = await import('../../src/application/services/profile-engine/spec-inference.js');
@@ -209,9 +209,10 @@ describe('Integration: MockOrderService → buildProfile → matchSpecs', () => 
     const product = await productService.getProductById('p101');
     expect(product).not.toBeNull();
 
-    const recommendation = matchSpecs(profile, product!);
-    expect(recommendation).not.toBeNull();
-    expect(recommendation!.matchMethod).toBe('coverage');
-    expect(recommendation!.selectedSpecs).toHaveProperty('size');
+    const result = matchSpecs(profile, product!);
+    expect(result).not.toBeNull();
+    const recommendation = result!.recommendation;
+    expect(recommendation.matchMethod).toBe('coverage');
+    expect(recommendation.selectedSpecs).toHaveProperty('size');
   });
 });

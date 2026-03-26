@@ -26,14 +26,19 @@ function audienceToRole(audience: TargetAudience): GenderRole {
  * Returns 0~1 where 1 means product range fully covers user range.
  */
 export function computeCoverage(userRange: NumericRange, productRange: NumericRange): number {
-  const overlapMin = Math.max(userRange[0], productRange[0]);
-  const overlapMax = Math.min(userRange[1], productRange[1]);
+  const uMin = Math.min(userRange[0], userRange[1]);
+  const uMax = Math.max(userRange[0], userRange[1]);
+  const pMin = Math.min(productRange[0], productRange[1]);
+  const pMax = Math.max(productRange[0], productRange[1]);
+
+  const overlapMin = Math.max(uMin, pMin);
+  const overlapMax = Math.min(uMax, pMax);
   if (overlapMin > overlapMax) return 0;
 
   const overlapLength = overlapMax - overlapMin;
-  const userLength = userRange[1] - userRange[0];
+  const userLength = uMax - uMin;
   if (userLength === 0) {
-    return (userRange[0] >= productRange[0] && userRange[0] <= productRange[1]) ? 1 : 0;
+    return (uMin >= pMin && uMin <= pMax) ? 1 : 0;
   }
   return overlapLength / userLength;
 }
@@ -90,27 +95,46 @@ export function scoreSpec(
  *         Pick the spec variant with highest weighted coverage.
  * Step 2: If no match, return null (caller should fallback to model inference).
  */
+export interface MatchSpecsResult {
+  recommendation: SpecRecommendation;
+  matchDetail: SpecMatchResult;
+}
+
 export function matchSpecs(
   profile: UserProfileEntity,
   product: ProductInfo,
   featurePriority?: RangeFeature[],
-): SpecRecommendation | null {
+): MatchSpecsResult | null {
   if (product.specs.length === 0) return null;
 
-  const sampleSpec = product.specs[0];
-  const role = audienceToRole(sampleSpec.targetAudience);
-  const genderProfile = profile.getGenderProfile(role);
-  if (!genderProfile) return null;
-
+  // Since a product might have specs for different audiences (e.g. parent-child matching outfits),
+  // we should group specs by role and try to match the best one, or if a specific role is given, use that.
+  // For simplicity, we check if the user profile has a matching gender profile for each spec's audience.
   const scored = product.specs
-    .map((spec) => scoreSpec(genderProfile, spec, featurePriority))
-    .filter((r) => r.matchedFeatureCount > 0)
-    .sort((a, b) => b.totalCoverage - a.totalCoverage);
+    .map((spec) => {
+      const role = audienceToRole(spec.targetAudience);
+      const genderProfile = profile.getGenderProfile(role);
+      if (!genderProfile) return null;
+      return scoreSpec(genderProfile, spec, featurePriority);
+    })
+    .filter((r): r is SpecMatchResult => r !== null && r.matchedFeatureCount > 0)
+    .sort((a, b) => {
+      // Primary sort: totalCoverage descending
+      const coverageDiff = b.totalCoverage - a.totalCoverage;
+      if (coverageDiff !== 0) return coverageDiff;
+      // Secondary sort: matchedFeatureCount descending
+      const countDiff = b.matchedFeatureCount - a.matchedFeatureCount;
+      if (countDiff !== 0) return countDiff;
+      // Tertiary sort: propValueId descending (arbitrary deterministic tie-breaker)
+      return b.propValueId.localeCompare(a.propValueId);
+    });
 
   if (scored.length === 0) return null;
 
   const best = scored[0];
   const bestSpec = product.specs.find((s) => s.propValueId === best.propValueId)!;
+  const bestRole = audienceToRole(bestSpec.targetAudience);
+  const bestGenderProfile = profile.getGenderProfile(bestRole)!;
 
   const selectedSpecs: Record<string, string> = {};
   if (bestSpec.size) selectedSpecs['size'] = bestSpec.size;
@@ -118,11 +142,14 @@ export function matchSpecs(
   if (bestSpec.shoeSize) selectedSpecs['shoeSize'] = bestSpec.shoeSize;
 
   return {
-    propValueId: best.propValueId,
-    selectedSpecs,
-    confidence: Math.round(best.totalCoverage * 100) / 100,
-    matchMethod: 'coverage',
-    reasoning: formatReasoning(best, genderProfile),
+    recommendation: {
+      propValueId: best.propValueId,
+      selectedSpecs,
+      confidence: Math.round(best.totalCoverage * 100) / 100,
+      matchMethod: 'coverage',
+      reasoning: formatReasoning(best, bestGenderProfile),
+    },
+    matchDetail: best,
   };
 }
 

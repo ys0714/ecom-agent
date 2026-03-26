@@ -3,13 +3,15 @@ import { InMemoryEventBus, createEvent } from '../domain/event-bus.js';
 import { UserProfileEntity } from '../domain/entities/user-profile.entity.js';
 import { ModelSlotManager } from './services/model-slot/model-slot-manager.js';
 import { IntentRouter } from './workflow/intent-router.js';
-import { matchSpecs } from './services/profile-engine/spec-inference.js';
+import { matchSpecs, type MatchSpecsResult } from './services/profile-engine/spec-inference.js';
 import { ColdStartManager } from './services/profile-engine/cold-start-manager.js';
 import { PreferenceDetector, detectAllByRules } from './services/profile-engine/preference-detector.js';
 import { arbitrate } from './services/profile-engine/confidence-arbitrator.js';
 import { generateExplanation, formatExplanationForReply } from './services/profile-engine/explanation-generator.js';
+import { SpecRecommendationEvaluator } from './services/data-flywheel/evaluator.js';
 import type { ProfileStore } from './services/profile-store.js';
 import type { ProductService } from '../infra/adapters/product-service.js';
+import type { LLMClient } from '../infra/adapters/llm.js';
 
 const GUARDRAIL_INSTRUCTIONS = '你不能做出退款、赔偿等未经授权的承诺。不要暴露用户的手机号、地址等隐私信息。';
 
@@ -20,6 +22,8 @@ export interface AgentDeps {
   intentRouter: IntentRouter;
   coldStartManager: ColdStartManager;
   productService?: ProductService;
+  llmClient?: LLMClient;
+  evaluator?: SpecRecommendationEvaluator;
   slidingWindowSize?: number;
 }
 
@@ -47,19 +51,17 @@ export class Agent {
 
     const intentResult = await intentRouter.classify(userMsg);
 
-    const prefDetector = new PreferenceDetector();
-    const prefSignals = detectAllByRules(userText);
-    const prefSignal = prefSignals[0] ?? { type: 'none' as const, confidence: 0, value: {}, source: 'conversation' as const };
+    const prefDetector = new PreferenceDetector(this.deps.llmClient);
+    const hybridPrefSignal = await prefDetector.detectHybrid(userText, conversationHistory.slice(-3));
+    const prefSignal = hybridPrefSignal;
 
     let activeRole: GenderRole | undefined;
-    const roleSignal = prefSignals.find((s) => s.type === 'role_switch');
-    if (roleSignal) {
-      activeRole = roleSignal.value.targetRole as GenderRole;
+    if (prefSignal.type === 'role_switch') {
+      activeRole = prefSignal.value.targetRole as GenderRole;
     }
 
-    const correctionSignal = prefSignals.find((s) => s.type === 'profile_correction');
-    if (correctionSignal) {
-      const corrections = correctionSignal.value;
+    if (prefSignal.type === 'profile_correction') {
+      const corrections = prefSignal.value;
       const role = activeRole ?? profile.spec.defaultRole;
       const delta: Record<string, unknown> = { role };
       if (corrections.height) delta.height = [corrections.height, corrections.height] as [number, number];
@@ -97,21 +99,26 @@ export class Agent {
     }
 
     let recommendation: SpecRecommendation | null = null;
+    let matchResultDetail: any = null;
+
     if (intentResult.intent === 'product_consult' && this.deps.productService) {
       if (prefSignal.type === 'explicit_override' && prefSignal.value.specifiedSize) {
         reply += `\n\n好的，已为您锁定 ${prefSignal.value.specifiedSize} 码。`;
       } else {
-        recommendation = await this.trySpecRecommendation(profile, userText, activeRole);
-        if (recommendation) {
+        const matchOutput = await this.trySpecRecommendation(profile, userText, activeRole);
+        if (matchOutput) {
+          recommendation = matchOutput.recommendation;
+          matchResultDetail = matchOutput.matchDetail;
+
           const product = await this.findProduct(userText);
           const genderProfile = profile.getGenderProfile(activeRole);
           const matchedSpec = product?.specs.find((s) => s.propValueId === recommendation!.propValueId);
 
-          if (genderProfile && matchedSpec) {
+          if (genderProfile && matchedSpec && matchResultDetail) {
             const explanation = generateExplanation({
               profile: genderProfile,
               productSpec: matchedSpec,
-              matchResult: { propValueId: recommendation.propValueId, totalCoverage: recommendation.confidence, featureCoverages: {}, matchedFeatureCount: 0 },
+              matchResult: matchResultDetail,
               confidence: recommendation.confidence,
               orderCount: profile.meta.totalOrders,
               isTemporaryProfile: prefSignal.type === 'role_switch',
@@ -125,6 +132,13 @@ export class Agent {
       }
     }
 
+    if (recommendation && this.deps.evaluator) {
+      // Very basic outcome tracking for now: assume accepted if no override
+      // In a real system, we'd wait for next turn or order event
+      const outcome = prefSignal.type === 'explicit_override' ? 'spec_rejected' : 'spec_accepted';
+      this.deps.evaluator.recordOutcome(recommendation, outcome);
+    }
+
     const assistantMsg: Message = { role: 'assistant', content: reply, timestamp: new Date().toISOString() };
     conversationHistory.push(assistantMsg);
     eventBus.publish(createEvent('message:assistant', { content: reply }, sessionId));
@@ -134,7 +148,7 @@ export class Agent {
       latencyMs: Date.now() - startTime,
       profile: { completeness: profile.getCompleteness(), coldStartStage: profile.getColdStartStage(), summary: profile.summarizeForPrompt() },
       preferenceSignal: prefSignal,
-      arbitration: prefSignals.length > 1 ? { signals: prefSignals, activeRole } : null,
+      arbitration: activeRole ? { activeRole } : null,
       recommendation,
     };
 
@@ -168,7 +182,7 @@ ${GUARDRAIL_INSTRUCTIONS}
     profile: UserProfileEntity,
     userText: string,
     overrideRole?: GenderRole,
-  ): Promise<SpecRecommendation | null> {
+  ): Promise<MatchSpecsResult | null> {
     if (!this.deps.productService) return null;
 
     const product = await this.findProduct(userText);

@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { ConfigWatchSubscriber } from '../../application/subscribers/config-watch-subscriber.js';
+import type { AutoPromptSubscriber } from '../../application/subscribers/auto-prompt-subscriber.js';
 
-export function registerAdminRoutes(app: FastifyInstance, configWatch?: ConfigWatchSubscriber) {
+export function registerAdminRoutes(app: FastifyInstance, configWatch?: ConfigWatchSubscriber, autoPrompt?: AutoPromptSubscriber) {
   app.get('/api/admin/status', async () => ({
     uptime: process.uptime(),
     memory: process.memoryUsage(),
@@ -9,7 +10,16 @@ export function registerAdminRoutes(app: FastifyInstance, configWatch?: ConfigWa
   }));
 
   app.post('/api/admin/flywheel/trigger', async (_request, reply) => {
-    return reply.send({ status: 'accepted', message: 'Flywheel trigger queued (not yet implemented)' });
+    if (!autoPrompt) {
+      return reply.status(503).send({ error: 'AutoPrompt pipeline is not configured' });
+    }
+    
+    // Fire and forget so we don't block
+    autoPrompt.runFlywheel().catch(err => {
+      app.log.error(err, 'Failed to run flywheel pipeline manually');
+    });
+    
+    return reply.send({ status: 'accepted', message: 'Flywheel trigger executing' });
   });
 
   if (configWatch) {

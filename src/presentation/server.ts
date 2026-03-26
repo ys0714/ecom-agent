@@ -5,6 +5,7 @@ import type { ProfileStore } from '../application/services/profile-store.js';
 import { SessionManager } from '../application/services/session-manager.js';
 import type { MetricsSubscriber } from '../application/subscribers/metrics-subscriber.js';
 import type { ConfigWatchSubscriber } from '../application/subscribers/config-watch-subscriber.js';
+import type { AutoPromptSubscriber } from '../application/subscribers/auto-prompt-subscriber.js';
 import type { RedisClient } from '../infra/adapters/redis.js';
 import type { LLMClient } from '../infra/adapters/llm.js';
 import type { AppConfig } from '../infra/config.js';
@@ -20,6 +21,7 @@ export interface ServerDeps {
   sessionManager?: SessionManager;
   metricsSubscriber?: MetricsSubscriber;
   configWatch?: ConfigWatchSubscriber;
+  autoPrompt?: AutoPromptSubscriber;
   redis?: RedisClient;
   llm?: LLMClient;
 }
@@ -93,7 +95,7 @@ export function buildServer(
 
   registerConversationRoutes(app, deps.agent, deps.profileStore, sessMgr);
   registerProfileRoutes(app, deps.profileStore);
-  registerAdminRoutes(app, deps.configWatch);
+  registerAdminRoutes(app, deps.configWatch, deps.autoPrompt);
   registerMetricsRoutes(app, deps.metricsSubscriber);
 
   app.setErrorHandler((error, _request, reply) => {

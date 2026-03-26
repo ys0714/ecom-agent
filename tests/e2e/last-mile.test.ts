@@ -44,7 +44,7 @@ describe('Last Mile Integration: end-to-end recommendation flow', () => {
 
   beforeAll(async () => {
     const orders = await new MockOrderService().getOrdersByUserId('u001');
-    const profile = buildProfileFromOrders('e2e-user', orders);
+    const profile = await buildProfileFromOrders('e2e-user', orders);
     await profileStore.save(profile);
   });
 
@@ -53,6 +53,10 @@ describe('Last Mile Integration: end-to-end recommendation flow', () => {
       method: 'POST', url: '/api/conversation',
       payload: { sessionId: 'e2e-s1', userId: 'e2e-user', message: '帮我看看商品p101哪个尺码合适' },
     });
+
+    if (res.statusCode !== 200) {
+      console.error(res.body);
+    }
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
@@ -102,7 +106,7 @@ describe('Last Mile Integration: end-to-end recommendation flow', () => {
   it('full roundtrip: order→profile→conversation→recommendation→session persisted', async () => {
     const orderService = new MockOrderService();
     const orders = await orderService.getOrdersByUserId('u001');
-    const profile = buildProfileFromOrders('roundtrip-user', orders);
+    const profile = await buildProfileFromOrders('roundtrip-user', orders);
     await profileStore.save(profile);
 
     const res1 = await app.inject({

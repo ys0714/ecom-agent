@@ -53,7 +53,7 @@ async function main() {
   const userId = 'cli-user';
   console.log('正在从订单历史构建用户画像...');
   const orders = await orderService.getOrdersByUserId('u001');
-  const profile = buildProfileFromOrders(userId, orders);
+  const profile = await buildProfileFromOrders(userId, orders, llmClient);
   await profileStore.save(profile);
   console.log(`画像构建完成（${orders.length} 笔订单，完整度 ${Math.round(profile.getCompleteness() * 100)}%）\n`);
 
