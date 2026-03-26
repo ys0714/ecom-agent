@@ -52,10 +52,15 @@ export default function ChatPanel({ apiBase, userId, sessionId, productId, onDeb
     setLoading(true);
 
     try {
+      // 隐式注入商品上下文到第一句话，保持 UI 干净的同时让后端感知当前商品
+      const payloadMessage = (messages.length === 0 && productId) 
+        ? `[当前正在浏览商品: ${productId}] ${text}` 
+        : text;
+
       const res = await fetch(`${apiBase}/api/conversation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, userId, message: text }),
+        body: JSON.stringify({ sessionId, userId, message: payloadMessage }),
       });
       const data: ConversationResponse = await res.json();
 

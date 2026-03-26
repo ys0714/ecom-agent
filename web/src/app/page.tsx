@@ -31,12 +31,18 @@ export default function Home() {
   const [userId, setUserId] = useState(MOCK_USERS[0].id);
   const [productId, setProductId] = useState(MOCK_PRODUCTS[0].id);
   
-  // Use a predictable but unique session ID per user selection to keep contexts isolated
-  const [sessionId, setSessionId] = useState(() => `web-${MOCK_USERS[0].id}-${Date.now()}`);
+  // Use a predictable but unique session ID per user and product selection to keep contexts isolated
+  const [sessionId, setSessionId] = useState(() => `web-${MOCK_USERS[0].id}-${MOCK_PRODUCTS[0].id}`);
 
   const handleUserChange = (newUserId: string) => {
     setUserId(newUserId);
-    setSessionId(`web-${newUserId}-${Date.now()}`);
+    setSessionId(`web-${newUserId}-${productId}`);
+    setDebug(null);
+  };
+
+  const handleProductChange = (newProductId: string) => {
+    setProductId(newProductId);
+    setSessionId(`web-${userId}-${newProductId}`);
     setDebug(null);
   };
 
@@ -67,7 +73,7 @@ export default function Home() {
             <label className="block text-xs font-medium text-gray-400 mb-2">当前咨询商品</label>
             <select 
               value={productId}
-              onChange={(e) => setProductId(e.target.value)}
+              onChange={(e) => handleProductChange(e.target.value)}
               className="w-full bg-gray-900 border border-gray-600 text-sm rounded px-2 py-1.5 outline-none focus:border-blue-500"
             >
               {MOCK_PRODUCTS.map(p => (
