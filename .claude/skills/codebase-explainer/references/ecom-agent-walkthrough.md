@@ -27,7 +27,7 @@
 | **2.7 Guardrails** | `src/application/guardrails/input-guard.ts`、`execution-guard.ts`、`output-guard.ts` |
 | **表现层** — HTTP API | `src/presentation/server.ts`、`src/presentation/api/*.ts` |
 | **表现层** — CLI | `src/presentation/cli/agent-cli.ts` |
-| **基础设施** | `src/infra/config.ts`、`src/infra/adapters/llm.ts`、`redis.ts`、`order-service.ts`、`product-service.ts` |
+| **基础设施** | `src/infra/config.ts`、`src/infra/adapters/llm.ts`、`redis.ts`、`product-service.ts` |
 
 ---
 

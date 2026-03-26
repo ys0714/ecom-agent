@@ -1,7 +1,6 @@
 import { config } from './infra/config.js';
 import { createLLMClient } from './infra/adapters/llm.js';
 import { InMemoryRedisClient } from './infra/adapters/redis.js';
-import { MockOrderService } from './infra/adapters/order-service.js';
 import { MockProductService } from './infra/adapters/product-service.js';
 import { InMemoryEventBus } from './domain/event-bus.js';
 import { ProfileStore } from './application/services/profile-store.js';
@@ -24,7 +23,6 @@ import { buildServer } from './presentation/server.js';
 const eventBus = new InMemoryEventBus();
 const redis = new InMemoryRedisClient();
 const profileStore = new ProfileStore(redis, config.paths.profiles);
-const orderService = new MockOrderService();
 const productService = new MockProductService();
 
 const llmClient = createLLMClient({

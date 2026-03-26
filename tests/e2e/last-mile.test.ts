@@ -10,7 +10,6 @@ import { MockProductService } from '../../src/infra/adapters/product-service.js'
 import { InMemoryEventBus } from '../../src/domain/event-bus.js';
 import { InMemoryRedisClient } from '../../src/infra/adapters/redis.js';
 import { UserProfileEntity } from '../../src/domain/entities/user-profile.entity.js';
-import { buildProfileFromOrders } from '../../src/application/services/profile-engine/order-analyzer.js';
 import { MockOrderService } from '../../src/infra/adapters/order-service.js';
 import { config } from '../../src/infra/config.js';
 import os from 'node:os';
@@ -43,8 +42,10 @@ describe('Last Mile Integration: end-to-end recommendation flow', () => {
   const app = buildServer(agent, profileStore, config, sessionManager);
 
   beforeAll(async () => {
-    const orders = await new MockOrderService().getOrdersByUserId('u001');
-    const profile = await buildProfileFromOrders('e2e-user', orders);
+    const profile = new UserProfileEntity('e2e-user', {
+      defaultRole: 'female',
+      femaleClothing: { weight: [100, 115], height: [160, 168], size: ['M'], waistline: null, bust: null, footLength: null, bottomSize: null, shoeSize: null }
+    }, { totalOrders: 5, dataFreshness: 1.0 });
     await profileStore.save(profile);
   });
 
@@ -103,10 +104,11 @@ describe('Last Mile Integration: end-to-end recommendation flow', () => {
     expect(body.reply).toContain('身高');
   });
 
-  it('full roundtrip: order→profile→conversation→recommendation→session persisted', async () => {
-    const orderService = new MockOrderService();
-    const orders = await orderService.getOrdersByUserId('u001');
-    const profile = await buildProfileFromOrders('roundtrip-user', orders);
+  it('full roundtrip: profile→conversation→recommendation→session persisted', async () => {
+    const profile = new UserProfileEntity('roundtrip-user', {
+      defaultRole: 'female',
+      femaleClothing: { weight: [100, 115], height: [160, 168], size: ['M'], waistline: null, bust: null, footLength: null, bottomSize: null, shoeSize: null }
+    });
     await profileStore.save(profile);
 
     const res1 = await app.inject({

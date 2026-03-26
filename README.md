@@ -94,7 +94,6 @@ src/
 │   │   │   ├── preference-detector.ts    # 混合偏好检测（规则+LLM）
 │   │   │   ├── confidence-arbitrator.ts  # 置信度打分仲裁
 │   │   │   ├── model-preference-analyzer.ts # LLM 深度偏好分析
-│   │   │   ├── order-analyzer.ts    #     订单 → 画像
 │   │   │   ├── dimension-registry.ts#     画像维度 Plugin
 │   │   │   └── cold-start-manager.ts#     冷启动策略
 │   │   ├── model-slot/              #   模型管理（槽位/缓存/A-B路由）
@@ -109,7 +108,6 @@ src/
 │   │   ├── llm.ts                   #     OpenAI-compatible
 │   │   ├── redis.ts                 #     ioredis + InMemory mock
 │   │   ├── logger.ts                #     JSON 结构化日志
-│   │   ├── order-service.ts         #     订单适配器
 │   │   └── product-service.ts       #     商品适配器
 │   └── observability/
 │       └── otel-setup.ts            #     OTel SDK + 自动插桩 + Prometheus Exporter

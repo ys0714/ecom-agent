@@ -10,7 +10,7 @@ import { ProfileStore } from '../../application/services/profile-store.js';
 import { ModelSlotManager } from '../../application/services/model-slot/model-slot-manager.js';
 import { IntentRouter } from '../../application/workflow/intent-router.js';
 import { ColdStartManager } from '../../application/services/profile-engine/cold-start-manager.js';
-import { buildProfileFromOrders } from '../../application/services/profile-engine/order-analyzer.js';
+import { UserProfileEntity } from '../../domain/entities/user-profile.entity.js';
 import { Agent } from '../../application/agent.js';
 import type { Message } from '../../domain/types.js';
 
@@ -49,13 +49,24 @@ async function main() {
     { batchSize: 1, enableFallback: false, cacheTTL: 0, maxRetries: 2, retryDelayMs: 500 },
   );
 
-  // Build profile from real order history (mock data)
+  // Mock loading profile from Profile Extraction System
   const userId = 'cli-user';
-  console.log('正在从订单历史构建用户画像...');
-  const orders = await orderService.getOrdersByUserId('u001');
-  const profile = await buildProfileFromOrders(userId, orders, llmClient);
+  console.log('正在从画像存储加载用户画像（由独立画像提取系统生成）...');
+  const profile = new UserProfileEntity(userId, {
+    defaultRole: 'female',
+    femaleClothing: {
+      weight: [100, 115],
+      height: [160, 168],
+      waistline: [66, 72],
+      size: ['M'],
+      shoeSize: ['37', '38'],
+      footLength: [235, 245],
+      bust: null,
+      bottomSize: ['M'],
+    }
+  }, { totalOrders: 12, dataFreshness: 1.0, lastOrderAt: new Date().toISOString() });
   await profileStore.save(profile);
-  console.log(`画像构建完成（${orders.length} 笔订单，完整度 ${Math.round(profile.getCompleteness() * 100)}%）\n`);
+  console.log(`画像加载完成（完整度 ${Math.round(profile.getCompleteness() * 100)}%）\n`);
 
   const agent = new Agent({
     eventBus, profileStore, modelSlotManager,

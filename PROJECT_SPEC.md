@@ -493,7 +493,6 @@ const productConsult = new WorkflowGraph<ConsultState>()
 │  └── adapters/               → 外部实现适配器                        │
 │      ├── llm.ts              → OpenAI 协议大模型调用                 │
 │      ├── redis.ts            → 内存或真实 Redis 适配                 │
-│      ├── order-service.ts    → 外部订单服务适配                      │
 │      ├── product-service.ts  → 外部商品服务适配                      │
 │      └── logger.ts           → 日志格式化工具                        │
 └─────────────────────────────────────────────────────────────────────┘
@@ -660,7 +659,6 @@ const productConsult = new WorkflowGraph<ConsultState>()
 | 测试模块 | 框架 | 覆盖范围 | 优先级 |
 |---------|------|---------|--------|
 | **画像领域实体** | Vitest | `UserProfileEntity.applyDelta()` / `summarizeForPrompt()` | P0 |
-| **画像构建** | Vitest | `OrderAnalyzer` 聚合逻辑与大模型解析 | P0 |
 | **冲突仲裁** | Vitest | `ConfidenceArbitrator` 置信度计算与仲裁 | P0 |
 | **模型槽位** | Vitest + Mock | `ModelSlotManager` 注册/切换/健康检查 | P0 |
 | **分段压缩** | Vitest | 滑动窗口溢出触发、摘要生成、System Prompt 注入 | P1 |
@@ -672,7 +670,7 @@ const productConsult = new WorkflowGraph<ConsultState>()
 
 | 测试场景 | 框架 | 覆盖范围 | 优先级 |
 |---------|------|---------|--------|
-| **画像构建端到端** | Vitest + Mock API | 订单数据 → 画像生成 → 对话更新 → 冲突仲裁 → 持久化 | P0 |
+| **端到端流程** | Vitest + Mock API | 画像加载 → 对话更新 → 冲突仲裁 → 持久化 | P0 |
 | **冷启动 → 成熟画像** | Vitest | 模拟新用户从 L0（零画像）经过多轮对话 + 下单逐步升级到 L3（成熟画像） | P0 |
 | **多轮对话冲突** | Vitest | 模拟 10 轮对话，包含 3 次冲突，验证仲裁结果和画像稳定性 | P0 |
 | **Workflow 切换** | Vitest + Mock LLM | 模拟"商品咨询"→"物流查询"→"售后"的意图切换，验证上下文继承 | P0 |
@@ -684,7 +682,7 @@ const productConsult = new WorkflowGraph<ConsultState>()
 | 测试目标 | 方法 | 验收标准 |
 |---------|------|---------|
 | 8B 模型推理延迟 | 1000 次规格推理 benchmark | P50 < 150ms, P99 < 500ms |
-| 画像构建耗时 | 1000 用户画像构建 | P50 < 50ms (纯 CPU) |
+| 画像加载耗时 | 1000 用户画像加载与反序列化 | P50 < 5ms (纯 CPU) |
 | 冲突仲裁耗时 | 10000 次仲裁计算 | P50 < 5ms |
 | 上下文压缩耗时 | 200 轮对话压缩 | < 100ms (零 LLM 调用层) |
 | Redis 画像读取 | 10000 次随机读 | P50 < 2ms |
@@ -733,13 +731,13 @@ const productConsult = new WorkflowGraph<ConsultState>()
 
 | 阶段 | 核心任务 | 状态 | 涉及核心模块 |
 |------|---------|------|---------|
-| **阶段 1：基础画像与推荐引擎** | 订单提取、画像构建、覆盖率匹配算法、Redis 持久化 | ✅ 已完成 | `profile-engine`, `profile-store` |
+| **阶段 1：基础画像与推荐引擎** | 画像加载封装、覆盖率匹配算法、Redis 持久化 | ✅ 已完成 | `profile-engine`, `profile-store` |
 | **阶段 2：对话主循环与架构设施** | Intent 路由、EventBus解耦、Model Slot 切换、四层架构建设 | ✅ 已完成 | `agent.ts`, `workflow`, `model-slot` |
 | **阶段 3：推荐解释与仲裁机制** | 三层结构化解释、规则+LLM混合置信度偏好仲裁 | ✅ 已完成 | `explanation-generator`, `confidence-arbitrator` |
 | **阶段 4：长文本与上下文记忆** | 滑动窗口 + 角色切换强制分段压缩 + 摘要主动注入 | ✅ 已完成 | `segment-compressor`, `sliding-window` |
 | **阶段 5：数据飞轮与工程运维** | BadCase 收集/归因/调优、OTel 指标采集、安全护栏Guardrails | ✅ 已完成 | `data-flywheel`, `subscribers`, `guardrails` |
-| **阶段 6：Web Chat 与调试面板** | 浏览器端交互面板、画像与仲裁的中间态 Debug 数据回显 | 🏃 进行中 | `web/app`, `DebugPanel` |
-| **阶段 7：生产级打磨与端到端测试** | 前后端集成测试、核心深水区修复校验、异常边界回归 | 📋 待启动 | `tests/e2e`, 线上观测 |
+| **阶段 6：Web Chat 与调试面板** | 浏览器端交互面板、画像与仲裁的中间态 Debug 数据回显 | ✅ 已完成 | `web/app`, `DebugPanel` |
+| **阶段 7：生产级打磨与端到端测试** | 前后端集成测试、核心深水区修复校验、异常边界回归 | 🏃 进行中 | `tests/e2e`, 线上观测 |
 
 ---
 
