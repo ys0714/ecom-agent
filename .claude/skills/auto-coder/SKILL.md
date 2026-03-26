@@ -60,12 +60,12 @@ All files under `.claude/skills/auto-coder/references/`:
 
 | File | Content | When to Read |
 |------|---------|-------------|
-| `b-01-overview.md` | Project overview & goals | First task or when needing project context |
-| `b-02-features.md` | Feature specifications (画像引擎, 模型槽位, Workflow, Guardrails, 飞轮) | When implementing feature-related tasks |
-| `b-03-architecture.md` | Architecture & module design (4-layer, DI, error handling) | When creating/modifying modules |
-| `b-04-testing.md` | Testing conventions (Vitest, mock patterns, SLO) | When writing tests |
-| `b-05-schedule.md` | Task schedule & status (MVP-1/2/3 + Phase 4-7) | Every cycle (Sync Spec step) |
-| `b-06-future.md` | Future roadmap (冲突仲裁, 分层记忆, Prompt Engine) | When planning or assessing scope |
+| `01-overview.md` | Project overview & goals | First task or when needing project context |
+| `02-features.md` | Feature specifications (画像引擎, 模型槽位, Workflow, Guardrails, 飞轮) | When implementing feature-related tasks |
+| `03-architecture.md` | Architecture & module design (4-layer, DI, error handling) | When creating/modifying modules |
+| `04-testing.md` | Testing conventions (Vitest, mock patterns, SLO) | When writing tests |
+| `05-schedule.md` | Task schedule & status (MVP-1/2/3 + Phase 4-7) | Every cycle (Sync Spec step) |
+| `06-future.md` | Future roadmap (冲突仲裁, 分层记忆, Prompt Engine) | When planning or assessing scope |
 
 ---
 
@@ -76,7 +76,7 @@ python3 .claude/skills/auto-coder/scripts/sync_spec.py
 ```
 
 Then read the schedule file to get task statuses:
-- Read `.claude/skills/auto-coder/references/b-05-schedule.md`
+- Read `.claude/skills/auto-coder/references/05-schedule.md`
 
 Task markers:
 
@@ -99,9 +99,9 @@ Quick-check predecessor artifacts exist (file-level only). On mismatch, log a wa
 ### 3. Implement
 
 1. **Read relevant spec** from `.claude/skills/auto-coder/references/`:
-   - Architecture: `b-03-architecture.md`
-   - Tech details: `b-03-architecture.md`
-   - Testing conventions: `b-04-testing.md`
+   - Architecture: `03-architecture.md`
+   - Tech details: `03-architecture.md`
+   - Testing conventions: `04-testing.md`
 
 2. **Extract** from spec: inputs/outputs, design principles, file list, acceptance criteria.
 
