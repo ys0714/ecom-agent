@@ -61,12 +61,16 @@ def detect_chapters(content: str) -> List[Chapter]:
 def sync(force: bool = False):
     skill_dir = Path(__file__).parent.parent          # auto-coder/
     repo_root = skill_dir.parent.parent.parent        # .claude/skills/ -> .claude/ -> project root
-    dev_spec  = repo_root / "PROJECT_SPEC.md"
+    # Primary source: SPEC-B-AGENT.md (Agent system spec)
+    # Falls back to PROJECT_SPEC.md for backward compatibility
+    dev_spec  = repo_root / "SPEC-B-AGENT.md"
+    if not dev_spec.exists():
+        dev_spec = repo_root / "PROJECT_SPEC.md"
     specs_dir = skill_dir / "references"
     hash_file = skill_dir / ".spec_hash"
 
     if not dev_spec.exists():
-        print(f"ERROR: {dev_spec} not found"); sys.exit(1)
+        print(f"ERROR: no spec file found"); sys.exit(1)
 
     # Hash check
     current_hash = hashlib.sha256(dev_spec.read_bytes()).hexdigest()

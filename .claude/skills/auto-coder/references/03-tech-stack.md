@@ -1,105 +1,237 @@
-## 3. 技术选型
+## 3. 系统架构与模块设计
 
-### 3.1 核心语言与运行时
-
-| 技术 | 选型 | 版本 | 选型理由 |
-|------|------|------|---------|
-| 语言 | TypeScript | 5.7+ | 强类型保障画像数据模型的正确性、优秀的 IDE 支持 |
-| 运行时 | Node.js | ≥ v18 | 异步 IO 模型适合事件驱动 + 多路推理并发 |
-| HTTP 框架 | Fastify | ≥ 5.0 | 原生 TypeScript 支持、Schema-based validation（配合 Zod）、性能是 Express 2-3x、插件体系成熟 |
-| 编译目标 | ES2022 | - | 支持 top-level await、class fields |
-| 模块系统 | ESM | - | 面向未来的模块标准，更好的 tree-shaking |
-| 严格模式 | `strict: true` | - | 启用全量 TS 严格检查 |
-
-### 3.2 LLM / 推理服务集成
-
-| 技术 | 选型 | 版本 | 选型理由 |
-|------|------|------|---------|
-| 对话模型 | Qwen-72B / Qwen-8B-SFT | - | 72B 作为 fallback + prompt 优化；8B-SFT 作为主推理模型 |
-| 推理协议 | OpenAI-Compatible API | v1 | `/v1/chat/completions` 兼容格式，适配 vLLM / TGI / Ollama |
-| 模型服务 | vLLM | ≥ 0.4 | 高性能推理引擎，支持 continuous batching，适合 8B 模型部署 |
-| SDK | openai (npm) | ≥ 4.0 | 官方 OpenAI 兼容 SDK，支持 OpenAI API 兼容端点 |
-| 微调框架 | LLaMA-Factory | - | SFT + GRPO 训练，导出 vLLM 可加载的权重（离线环节，不在运行时） |
-
-**模型部署架构**：
+### 3.1 四层架构总览
 
 ```
-┌────────────────────────────────────────────┐
-│  Model Deployment (运维侧)                  │
-│                                              │
-│  vLLM Server (GPU)                          │
-│  ├── Qwen-8B-SFT   @ :8001 (主推理)        │
-│  ├── Qwen-72B       @ :8002 (fallback/优化) │
-│  └── Health Check   @ :8003/health          │
-│                                              │
-│  微调产物路径：                               │
-│  $MODEL_DIR/qwen-8b-sft-spec-v{N}/         │
-│    ├── config.json                          │
-│    ├── tokenizer.json                       │
-│    └── model-*.safetensors                  │
-└────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  Presentation Layer (表现层 / API 层) — Fastify                      │
+│  src/presentation/                                                   │
+│  ├── api/                     → Fastify 路由请求处理                  │
+│  │   ├── conversation-handler.ts  → 对话 API 接入                    │
+│  │   ├── profile-handler.ts       → 画像查询 API                     │
+│  │   ├── admin-handler.ts         → 飞轮触发等运维 API               │
+│  │   └── metrics-handler.ts       → 指标暴露                         │
+│  ├── cli/                                                            │
+│  │   └── agent-cli.ts             → CLI 对话与查询工具                │
+│  └── server.ts                → Fastify 服务器实例化与注册            │
+├─────────────────────────────────────────────────────────────────────┤
+│  Application Layer (应用层) — 纯编排，不含底层实现规则                   │
+│  src/application/                                                    │
+│  ├── agent.ts                 → Agent 核心主循环与上下文组装           │
+│  ├── guardrails/              → 安全护栏策略                          │
+│  │   ├── input-guard.ts                                              │
+│  │   ├── execution-guard.ts                                          │
+│  │   └── output-guard.ts                                             │
+│  ├── workflow/                → Workflow 路由与场景实现               │
+│  │   ├── intent-router.ts         → 意图路由器                       │
+│  │   ├── product-consult.ts       → 商品咨询 Workflow                │
+│  │   ├── after-sale.ts                                               │
+│  │   ├── logistics.ts                                                │
+│  │   ├── complaint.ts                                                │
+│  │   └── workflow-graph.ts        → 状态机节点图实现                   │
+│  ├── services/                                                       │
+│  │   ├── profile-engine/                                             │
+│  │   │   ├── order-analyzer.ts        → 订单记录解析                 │
+│  │   │   ├── spec-inference.ts        → 规格匹配与推理计算            │
+│  │   │   ├── preference-detector.ts   → 用户偏好检测（规则+LLM）      │
+│  │   │   ├── explanation-generator.ts → 推荐解释生成                 │
+│  │   │   ├── confidence-arbitrator.ts → 置信度冲突仲裁               │
+│  │   │   ├── cold-start-manager.ts    → 冷启动处理                   │
+│  │   │   └── dimension-registry.ts    → 维度插件注册                 │
+│  │   ├── model-slot/                                                 │
+│  │   │   ├── model-slot-manager.ts    → 模型槽位管理                 │
+│  │   │   ├── model-provider.ts                                       │
+│  │   │   ├── inference-cache.ts                                      │
+│  │   │   └── ab-router.ts                                            │
+│  │   ├── data-flywheel/                                              │
+│  │   │   ├── badcase-collector.ts     → Badcase 采集与收集           │
+│  │   │   ├── badcase-analyzer.ts      → Badcase 聚类分析             │
+│  │   │   ├── tuning-advisor.ts        → 自动调优建议生成              │
+│  │   │   ├── evaluator.ts             → 推荐打分评估                 │
+│  │   │   ├── ab-experiment.ts         → A/B 实验管理                 │
+│  │   │   └── prompt-optimizer.ts      → Prompt 优化建议              │
+│  │   ├── context/                                                    │
+│  │   │   └── segment-compressor.ts    → 窗口外历史对话压缩记忆        │
+│  │   ├── session-manager.ts           → 会话持久化                   │
+│  │   └── profile-store.ts             → 画像持久化                   │
+│  └── subscribers/             → 事件订阅者                            │
+│      ├── session-log-subscriber.ts    → 会话日志持久化               │
+│      ├── metrics-subscriber.ts        → 指标采集                     │
+│      ├── alert-subscriber.ts          → 异常告警                     │
+│      ├── auto-prompt-subscriber.ts    → 数据飞轮定期触发             │
+│      └── config-watch-subscriber.ts   → 配置热更新                   │
+├─────────────────────────────────────────────────────────────────────┤
+│  Domain Layer (领域层) — 核心业务规则与契约                            │
+│  src/domain/                                                         │
+│  ├── entities/               → 领域实体（充血模型）                    │
+│  │   └── user-profile.entity.ts  → UserProfileEntity                │
+│  ├── types.ts                → 全局类型定义                          │
+│  └── event-bus.ts            → 事件总线（分发引擎和接口契约）          │
+├─────────────────────────────────────────────────────────────────────┤
+│  Infrastructure Layer (基础设施层)                                    │
+│  src/infra/                                                          │
+│  ├── config.ts               → 环境变量及静态配置                     │
+│  ├── observability/          → 可观测性设施                          │
+│  │   └── otel-setup.ts       → OpenTelemetry 初始化                 │
+│  └── adapters/               → 外部实现适配器                        │
+│      ├── llm.ts              → OpenAI 协议大模型调用                 │
+│      ├── redis.ts            → 内存或真实 Redis 适配                 │
+│      ├── order-service.ts    → 外部订单服务适配                      │
+│      ├── product-service.ts  → 外部商品服务适配                      │
+│      └── logger.ts           → 日志格式化工具                        │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.3 数据存储
+### 3.2 核心数据流
 
-| 技术 | 选型 | 用途 | 选型理由 |
-|------|------|------|---------|
-| 缓存 | Redis（含 RedisJSON 模块） | L1 画像缓存、推理结果缓存、会话状态 | 低延迟读写，支持 TTL 自动淘汰 |
-| 事件流 | Redis Streams | 事件持久化、未来分布式消费者组预留 | 天然支持消费者组，为分布式 Subscriber 铺路 |
-| 持久化 | JSON / JSONL 文件 | 会话日志、画像归档、BadCase 记录 | 简单可靠，append-only 天然防丢失 |
-| 订单数据 | 外部 API / MySQL | 历史订单查询 | 通过 OrderService 适配器接入，不直连 |
-| 商品数据 | 外部 API / Elasticsearch | 商品信息查询 | 通过 ProductService 适配器接入 |
+#### 对话主循环（`Agent.handleMessage()`）
 
-**Redis 使用精细化**：
+```
+┌────────────────────────────────────────────────────────────┐
+│ 用户消息到达                                                 │
+│                                                              │
+│ 1. EventBus.publish('message:user', msg)                    │
+│                                                              │
+│ 2. IntentRouter.classify(msg)                               │
+│    → 识别用户意图 (例如 product_consult)                       │
+│                                                              │
+│ 3. PreferenceDetector.detectHybrid(msg, history)            │
+│    → 混合路由检测偏好：规则路径或LLM模型路径                     │
+│    → 返回 PreferenceSignal (包括明确覆写或画像纠正等)             │
+│                                                              │
+│ 4. UserProfileEntity.applyDelta(...)                        │
+│    → 将纠正的偏好应用于画像中，并进行内部置信度仲裁                 │
+│                                                              │
+│ 5. ColdStartManager.getAction(profile)                      │
+│    → 对新用户生成冷启动主动询问提示（例如：询问身高体重）             │
+│                                                              │
+│ 6. SlidingWindow 溢出处理与 SegmentCompressor 压缩              │
+│    → 将超出窗口的消息转为压缩段记忆 (被动注入)                      │
+│                                                              │
+│ 7. 构建 System Prompt 与大模型推理                             │
+│    → ModelSlotManager.infer() 生成回复                        │
+│                                                              │
+│ 8. SpecInference 推荐与解释 (商品咨询时触发)                     │
+│    → 如果触发推荐，进行规格覆盖率计算并生成三层结构化解释             │
+│    → 推荐内容附加至最终回复                                      │
+│                                                              │
+│ 9. 记录返回结果并发布事件 'message:assistant'                   │
+│                                                              │
+│ 10. SpecRecommendationEvaluator 记录推荐质量跟踪               │
+└────────────────────────────────────────────────────────────┘
+```
 
-| 数据 | Redis 类型 | Key 设计 | 说明 |
-|------|-----------|---------|------|
-| 用户画像 | RedisJSON | `profile:{userId}` | 支持 JSONPath 级别的部分更新（`JSON.SET key $.spending.avgOrderAmount`），避免全量序列化 |
-| 推理结果缓存 | String | `inference:{userId}:{productId}:{profileVersion}` | 关联 profileVersion，画像更新后缓存自动失效 |
-| 模型健康状态 | String | `model_health:{slotId}` TTL=60s | 短 TTL 自动过期 |
-| 会话状态 | Hash | `session:{sessionId}` TTL=7200s | 会话元数据（非完整消息） |
-| 事件流 | Stream | `events:{eventType}` | 预留分布式消费，当前仅作为持久化 backup |
+#### 数据飞轮循环（`AutoPromptSubscriber.runFlywheel()`）
 
-### 3.4 核心依赖
+```
+┌──────────────────────────────────────────────────────┐
+│  触发条件：BadCase 池累积满或定时器定期触发               │
+│                                                        │
+│  1. BadCaseCollector.drainPool()                      │
+│     → 提取未处理的 badcases，进入分析池                   │
+│                                                        │
+│  2. BadCaseAnalyzer.analyze(pool)                     │
+│     → 结合归因维度对 badcase 进行聚类，得出 FailureModeCluster │
+│                                                        │
+│  3. TuningAdvisor.recommend(topCluster)               │
+│     → 根据最大错误模式提供针对性的参数调优建议                 │
+│                                                        │
+│  4. TuningAdvisor.apply(recommendation)               │
+│     → 判断置信度，高/中置信度的数值型参数进行自动修改应用          │
+│                                                        │
+│  5. ConfigWatchSubscriber.applyChange()               │
+│     → 通知系统组件参数热更                                 │
+└──────────────────────────────────────────────────────┘
+```
 
-| 技术 | 选型 | 版本 | 用途 |
-|------|------|------|------|
-| **运行时** | | | |
-| openai | npm | ≥ 4.0 | OpenAI-compatible API 调用 |
-| fastify | npm | ≥ 5.0 | HTTP 服务框架 |
-| fastify-type-provider-zod | npm | latest | Fastify + Zod 类型集成 |
-| ioredis | npm | ≥ 5.0 | Redis 客户端 |
-| zod | npm | ≥ 3.22 | 画像数据模型运行时校验 |
-| uuid | npm | ≥ 9.0 | 唯一标识生成（sessionId, traceId） |
-| dotenv | npm | ≥ 16.0 | 环境变量管理 |
-| commander | npm | ≥ 12.0 | CLI 工具框架 |
-| **架构基础设施** | | | |
-| neverthrow | npm | ≥ 8.0 | Result<T, E> 模式，替代 throw/catch 的显式错误处理 |
-| cockatiel | npm | ≥ 3.2 | 弹性策略库（断路器、重试、超时、限流、Bulkhead） |
-| **可观测性** | | | |
-| @opentelemetry/sdk-node | npm | ≥ 0.52 | OpenTelemetry Node.js SDK（统一 Metrics/Traces/Logs） |
-| @opentelemetry/auto-instrumentations-node | npm | latest | 自动插桩（HTTP、Redis、LLM 调用） |
-| @opentelemetry/exporter-prometheus | npm | latest | Prometheus 指标导出 |
-| @opentelemetry/exporter-trace-otlp-http | npm | latest | OTLP Trace 导出（Jaeger/Zipkin） |
-| **测试** | | | |
-| vitest | npm | ≥ 1.0 | 测试框架 |
+### 3.3 模块依赖关系
 
-### 3.5 持久化策略
+```
+                    ┌────────────────────────────┐
+                    │   domain/ (零外部依赖)       │
+                    │   ├── entities/             │ ← 领域实体（充血模型）
+                    │   │   └── UserProfileEntity │
+                    │   ├── types.ts              │ ← 全局类型定义
+                    │   └── event-bus.ts          │ ← 事件接口及简单实现
+                    └──────────┬─────────────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              ▼                ▼                ▼
+       ┌────────────┐  ┌──────────────┐  ┌──────────────────┐
+       │ infra/     │  │ infra/       │  │ application/     │
+       │ config.ts  │  │ adapters/    │  │ workflow/        │
+       │ observ-    │  │   llm.ts     │  │   intent-router  │
+       │  ability/  │  │   redis.ts   │  │   product-consult│
+       │  otel-setup│  │   order-svc  │  │ guardrails/      │
+       │            │  │   product-svc│  │ services/        │
+       │            │  │   logger.ts  │  │   profile-engine/│
+       │            │  │              │  │   model-slot/    │
+       │            │  │              │  │   context/       │
+       │            │  │              │  │   data-flywheel/ │
+       │            │  │              │  │ subscribers/     │
+       └────────────┘  └──────────────┘  └────────┬─────────┘
+                                                  │
+                                        ┌─────────┴─────────┐
+                                        ▼                   ▼
+                                 ┌────────────┐      ┌──────────┐
+                                 │presentation│      │  cli/    │
+                                 │ Fastify API│      │ agent-cli│
+                                 │ handlers   │      └──────────┘
+                                 └────────────┘      
 
-> **路径变量说明**：
-> - `$DATA_DIR` = `$ECOM_AGENT_HOME` 环境变量 || `~/.ecom-agent/`
-> - `$PROJECT_DIR` = `$CWD/.ecom-agent/`
+依赖规则：
+  domain/ → 不依赖任何其他层
+  infra/  → 仅依赖 domain/（类型 + 接口）
+  application/ → 依赖 domain/ + infra/
+  presentation/ → 依赖 application/
+```
 
-| 数据类型 | 存储格式 | 存储路径 | 作用域 |
-|---------|---------|---------|--------|
-| 用户画像 | JSON | `$DATA_DIR/profiles/{userId}.json` | 全局 |
-| 用户画像缓存 | RedisJSON | `profile:{userId}` （支持 JSONPath 部分更新）| 全局 |
-| 会话日志 | JSONL (append-only) | `$DATA_DIR/sessions/{sessionId}.jsonl` | 全局 |
-| 推理结果缓存 | Redis String | `inference:{userId}:{productId}:{profileVersion}` TTL=3600s | 全局 |
-| Prompt 模板 | JSON (versioned) | `$PROJECT_DIR/prompts/prompt_{version}.json` | 项目级 |
-| BadCase 记录 | JSONL (daily rolling) | `$DATA_DIR/badcases/{date}.jsonl` | 全局 |
-| A/B 实验 | JSON | `$DATA_DIR/experiments/exp_{id}.json` | 全局 |
-| AutoPrompt 日志 | JSONL | `$DATA_DIR/autoprompt/optimization_log.jsonl` | 全局 |
-| 模型健康状态 | Redis String | `model_health:{slotId}` TTL=60s | 全局 |
+### 3.4 依赖注入与组装
+
+系统采用**手动 Composition Root** 模式（无框架），在 `src/main.ts` 中统一组装所有依赖。对于本项目的规模，手动组装完全可控，避免了注入框架在 ESM 模式下的兼容性问题。
+
+**设计原则**：
+- 所有服务通过构造函数注入依赖，不使用全局单例。
+- 测试时直接在测试文件中实例化类并替换 mock 依赖。
+- 组装逻辑集中在一个入口文件，依赖链路一目了然。
+
+### 3.5 配置管理架构
+
+系统采用**分层配置**设计，支持运行时热更新业务参数，无需重启服务。
+
+**配置分层**（优先级从低到高）：
+
+```
+┌──────────────────────────────────────────────┐
+│  Layer 4: Experiment Override (A/B 实验参数)   │ ← 最高优先级
+│  → 实验期间临时覆盖，实验结束自动清除          │
+├──────────────────────────────────────────────┤
+│  Layer 3: Runtime Override (运行时热更新)      │
+│  → 通过 Admin API 修改，存储在 Redis          │
+│  → EventBus.publish('config:updated') 通知    │
+├──────────────────────────────────────────────┤
+│  Layer 2: Config File (应用默认值)            │
+│  → $PROJECT_DIR/config.json                   │
+│  → 部署时确定，进程启动时加载                  │
+├──────────────────────────────────────────────┤
+│  Layer 1: Environment Variables (部署环境)     │ ← 最低优先级
+│  → .env / 容器环境变量                         │
+│  → 仅存放基础设施地址、密钥等部署相关配置       │
+└──────────────────────────────────────────────┘
+```
+
+**可热更新的参数**：
+
+| 参数 | 默认值 | 热更新 | 说明 |
+|------|--------|--------|------|
+| `SLIDING_WINDOW_SIZE` | 10 | 支持 | 对话滑动窗口大小 |
+| `BADCASE_BATCH_SIZE` | 50 | 支持 | 飞轮触发批次 |
+| `AB_TRAFFIC_RATIO` | 0.1 | 支持 | A/B 灰度比例 |
+| `MIN_RECOMMEND_CONFIDENCE` | 0.5 | 支持 | 推荐最低置信度阈值 |
+| `FEATURE_PRIORITY` | `[height,weight,bust,waistline,footLength]` | 支持 | 覆盖率匹配特征优先级 |
+| `REDIS_URL` | - | 不支持 | 需重启 |
+| `LLM_BASE_URL` / `LLM_MODEL_ID` | - | 不支持 | 需重启（通过模型热切换替代） |
+
+配置变更通过 `ConfigWatchSubscriber` 推送到相关模块，模块自行响应更新。
 
 ---

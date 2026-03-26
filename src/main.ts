@@ -18,6 +18,7 @@ import { BadCaseCollector } from './application/services/data-flywheel/badcase-c
 import { BadCaseAnalyzer } from './application/services/data-flywheel/badcase-analyzer.js';
 import { TuningAdvisor } from './application/services/data-flywheel/tuning-advisor.js';
 import { SpecRecommendationEvaluator } from './application/services/data-flywheel/evaluator.js';
+import { SegmentCompressor } from './application/services/context/segment-compressor.js';
 import { buildServer } from './presentation/server.js';
 
 const eventBus = new InMemoryEventBus();
@@ -55,6 +56,8 @@ const tuningAdvisor = new TuningAdvisor({
 const autoPrompt = new AutoPromptSubscriber(badcaseCollector, badcaseAnalyzer, tuningAdvisor, configWatch);
 const evaluator = new SpecRecommendationEvaluator();
 
+const segmentCompressor = new SegmentCompressor({ llmClient, segmentSize: 5 });
+
 const agent = new Agent({
   eventBus,
   profileStore,
@@ -64,6 +67,7 @@ const agent = new Agent({
   productService,
   llmClient,
   evaluator,
+  segmentCompressor,
   slidingWindowSize: config.business.slidingWindowSize,
 });
 

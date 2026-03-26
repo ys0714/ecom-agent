@@ -104,15 +104,17 @@ export function matchSpecs(
   profile: UserProfileEntity,
   product: ProductInfo,
   featurePriority?: RangeFeature[],
+  overrideRole?: GenderRole,
 ): MatchSpecsResult | null {
   if (product.specs.length === 0) return null;
 
-  // Since a product might have specs for different audiences (e.g. parent-child matching outfits),
-  // we should group specs by role and try to match the best one, or if a specific role is given, use that.
-  // For simplicity, we check if the user profile has a matching gender profile for each spec's audience.
   const scored = product.specs
     .map((spec) => {
-      const role = audienceToRole(spec.targetAudience);
+      const specRole = audienceToRole(spec.targetAudience);
+      // When overrideRole is set (e.g. "帮我老公买"), only match specs
+      // whose audience aligns with that role, using the override role's profile.
+      const role = overrideRole ?? specRole;
+      if (overrideRole && specRole !== overrideRole) return null;
       const genderProfile = profile.getGenderProfile(role);
       if (!genderProfile) return null;
       return scoreSpec(genderProfile, spec, featurePriority);

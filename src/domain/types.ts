@@ -287,3 +287,13 @@ export interface AgentEvent {
   sessionId?: string;
   payload: Record<string, unknown>;
 }
+
+// ─── Segment Compression (context memory) ─────────────────────────────────
+
+export interface CompressedSegment {
+  segmentIndex: number;
+  turnRange: [number, number];
+  summary: string;
+  keyFacts: string[];
+  intent: WorkflowType;
+}

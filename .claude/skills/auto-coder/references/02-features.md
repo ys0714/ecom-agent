@@ -1,601 +1,6 @@
 ## 2. 核心特点
 
-### 2.1 用户特征画像引擎
-
-系统根据用户历史下单记录，实时构建多维结构化画像，为客服对话中的商品推荐、规格默选、话术策略提供决策依据。
-
-#### 2.1.1 画像领域实体（Rich Domain Model）
-
-`UserProfile` 采用**充血领域模型**（Rich Domain Model）设计，不仅包含数据结构，还封装画像更新、冲突仲裁等核心业务行为。Application 层只负责流程编排，不包含业务规则。
-
-**画像数据模型（`UserProfileEntity`）**：
-
-```typescript
-class UserProfileEntity {
-  readonly userId: string;
-  private version: number;
-  private createdAt: string;
-  private updatedAt: string;
-  private dimensions: Map<string, DimensionData>;
-  private meta: ProfileMeta;
-
-  applyDelta(delta: ProfileDelta): Result<void, ConflictResult> {
-    // 核心业务逻辑：检测冲突 → 仲裁 → 合并
-  }
-
-  resolveConflict(existing: DimensionData, incoming: DimensionDelta): ArbitrationResult {
-    // 加权置信度仲裁算法（数据源×时间衰减×订单支撑×表达强度）
-  }
-
-  decayConfidence(now: Date): void {
-    // 时间衰减：对所有维度的置信度执行 e^(-λt) 衰减
-  }
-
-  getDimension<T extends DimensionData>(dimensionId: string): T | undefined {
-    return this.dimensions.get(dimensionId) as T | undefined;
-  }
-
-  summarizeForPrompt(): string {
-    // 聚合所有维度生成 LLM 可读的画像摘要
-  }
-
-  getCompleteness(): number {
-    // 计算画像完整度 0~1
-  }
-}
-
-interface ProfileMeta {
-  totalOrders: number;
-  profileCompleteness: number;        // 0~1
-  lastOrderAt: string;
-  dataFreshness: number;              // 0~1（时间衰减）
-  coldStartStage: 'cold' | 'warm' | 'hot';
-}
-```
-
-**画像维度类型定义**（内置维度 + 可扩展自定义维度）：
-
-```typescript
-interface CategoryScore {
-  category: string;
-  score: number;                      // 0~1 偏好分
-  confidence: number;                 // 0~1 置信度
-  orderCount: number;                 // 支撑订单数
-  lastOrderAt: string;
-}
-
-interface SpecScore {
-  value: string;                      // 规格值（如 "XL", "红色"）
-  score: number;                      // 0~1 偏好分
-  confidence: number;                 // 0~1 置信度
-  source: 'order_history' | 'explicit' | 'inferred' | 'conversation';
-  updatedAt: string;
-}
-```
-
-**内置画像维度**：
-
-| 维度 ID | 说明 | 数据结构 |
-|---------|------|---------|
-| `spending` | 消费能力（客单价、价格区间、敏感度、优惠券使用率） | `SpendingDimension` |
-| `categoryPreference` | 品类偏好（Top-K、近 30 天、季节性） | `CategoryDimension` |
-| `specPreference` | 规格偏好（尺码/体重/身高/腰围/胸围/脚长等 8 种身体特征区间） | `SpecDimension` |
-| `behavior` | 行为特征（购买频率、决策时长、退货率、活跃时段） | `BehaviorDimension` |
-| `interaction` | 交互偏好（沟通风格、响应期望、投诉敏感度） | `InteractionDimension` |
-
-**用户尺码画像数据结构（`UserSpecProfile`）**：
-
-系统针对服饰类目实现了精细化的身体特征画像。画像由大模型从用户历史购买订单中提取，以增量滚动 T+1 方式持续更新，存储于 Redis（key: `profile:{userId}`）。区间类特征采用 `[min, max]` 表示，尽可能扩大匹配范围——如用户曾购买身高 120-150 的女装 A 和身高 160-180 的女装 B，则画像中女性身高为 `[120.0, 180.0]`。
-
-```typescript
-interface UserSpecProfile {
-  userId: string;
-
-  // 按性别/角色分组的身体特征（同一用户可能为自己和家人购买）
-  femaleClothing?: GenderSpecProfile;   // 女装画像
-  maleClothing?: GenderSpecProfile;     // 男装画像
-  childClothing?: GenderSpecProfile;    // 童装画像
-
-  defaultRole: 'female' | 'male' | 'child'; // 无法判断时的默认角色
-  updatedAt: string;
-}
-
-interface GenderSpecProfile {
-  weight: [number, number] | null;      // 体重区间（斤），如 [105, 115]
-  height: [number, number] | null;      // 身高区间（cm），如 [160, 170]
-  waistline: [number, number] | null;   // 腰围区间（cm），如 [66, 70]
-  bust: [number, number] | null;        // 胸围区间（cm），如 [80, 90]
-  footLength: [number, number] | null;  // 脚长区间（mm），如 [235, 245]
-  size: string[] | null;                // 上装尺码集合，如 ["M", "L"]
-  bottomSize: string[] | null;          // 下装尺码集合，如 ["M", "L"]
-  shoeSize: string[] | null;            // 鞋码集合，如 ["37", "38"]
-}
-```
-
-**商品规格画像数据结构（`ProductSpecProfile`）**：
-
-商品画像由大模型从商品标题、规格数据中提取，按 `propValueId`（规格值 ID）粒度存储。每个规格值对应一组身体特征区间，用于与用户画像进行覆盖率匹配。
-
-```typescript
-interface ProductSpecProfile {
-  propValueId: string;                  // 规格值 ID（如某个 SKU 的尺码 ID）
-  productId: string;
-  category: string;                     // 商品类目（femaleClothing / maleClothing / ...）
-  targetAudience: 'adult_female' | 'adult_male' | 'child';
-
-  // 该规格值对应的身体特征区间
-  weight: [number, number] | null;      // 适合体重区间（斤）
-  height: [number, number] | null;      // 适合身高区间（cm）
-  waistline: [number, number] | null;   // 适合腰围区间（cm）
-  bust: [number, number] | null;        // 适合胸围区间（cm）
-  footLength: [number, number] | null;  // 适合脚长区间（mm）
-  size: string | null;                  // 上装尺码，如 "XL"
-  bottomSize: string | null;            // 下装尺码，如 "XL"
-  shoeSize: string | null;              // 鞋码，如 "40"
-}
-```
-
-**Redis 存储示例**：
-
-```json
-// 商品画像：key = product_spec:{propValueId}
-{
-  "propValueId": "105217133",
-  "shoeSize": "40",
-  "size": "2XL",
-  "weight": [80, 110],
-  "height": [160, 165],
-  "bust": [80, 110]
-}
-
-// 用户画像：key = profile:{userId} → femaleClothing
-{
-  "weight": [105, 115],
-  "height": [160, 170],
-  "size": ["M"],
-  "bottomSize": ["M"],
-  "shoeSize": ["37", "38"],
-  "footLength": [235, 245],
-  "waistline": null,
-  "bust": null
-}
-```
-
-#### 2.1.2 画像维度 Plugin 机制
-
-为满足不同品类（服装 vs 数码 vs 食品）的差异化画像需求，系统采用**画像维度插件**（ProfileDimensionPlugin）架构。新增画像维度无需修改 `UserProfileEntity` 或已有代码，只需实现 Plugin 接口并注册。
-
-```typescript
-interface ProfileDimensionPlugin {
-  dimensionId: string;
-  displayName: string;
-  schema: ZodSchema;                  // 该维度的数据运行时校验
-  applicableCategories?: string[];    // 适用品类（空 = 全品类）
-
-  extractFromOrders(orders: Order[]): DimensionData;
-  updateFromConversation(msg: Message, current: DimensionData): DimensionDelta;
-  arbitrate(existing: DimensionData, delta: DimensionDelta): DimensionData;
-  summarize(data: DimensionData): string;
-}
-
-class ProfileDimensionRegistry {
-  register(plugin: ProfileDimensionPlugin): void;
-  unregister(dimensionId: string): void;
-  getPlugin(dimensionId: string): ProfileDimensionPlugin | undefined;
-  getPluginsForCategory(category: string): ProfileDimensionPlugin[];
-  listAll(): ProfileDimensionPlugin[];
-}
-```
-
-**扩展示例**：新增"售后偏好"维度只需编写一个 Plugin：
-
-```typescript
-const afterSalePlugin: ProfileDimensionPlugin = {
-  dimensionId: 'afterSalePreference',
-  displayName: '售后偏好',
-  schema: AfterSaleSchema,
-  extractFromOrders: (orders) => { /* 从退货/换货记录提取 */ },
-  updateFromConversation: (msg, current) => { /* 从对话中识别售后诉求 */ },
-  arbitrate: (existing, delta) => { /* 仲裁逻辑 */ },
-  summarize: (data) => `退货倾向: ${data.returnTendency}, 偏好方式: ${data.preferredMethod}`,
-};
-dimensionRegistry.register(afterSalePlugin);
-```
-
-#### 2.1.3 冷启动策略
-
-新用户（无历史订单或订单数不足）的画像构建采用**四级渐进式冷启动策略**：
-
-| 阶段 | 触发条件 | 策略 | 画像来源 |
-|------|---------|------|---------|
-| **L0 — 零画像** | 无任何数据 | 使用群体画像 Fallback | 基于注册信息（年龄/性别/地区）匹配最近似用户群体的聚合画像 |
-| **L1 — 主动探索** | `profileCompleteness < 0.3` | 对话前 N 轮主动引导用户表达偏好 | 引导问题如"您平时穿什么尺码？"、"预算大概多少？" |
-| **L2 — 渐进积累** | `0.3 ≤ profileCompleteness < 0.7` | 每次交互补充画像，降低推荐置信度 | 订单 + 对话信号混合 |
-| **L3 — 成熟画像** | `profileCompleteness ≥ 0.7` | 正常画像驱动推荐 | 完整多维画像 |
-
-**冷启动特殊处理**：
-- 画像置信度低于阈值时，推荐结果附加"热门商品"兜底，避免低质量个性化推荐
-- `coldStartStage` 字段存入 `ProfileMeta`，各模块可据此调整行为（如 SpecInferenceEngine 在冷启动阶段跳过个性化规格推理）
-- 冷启动阶段的 BadCase 不进入数据飞轮（样本质量不够）
-
-#### 2.1.4 画像构建流程
-
-**离线清洗流程**（T+1 增量更新）：
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 商品画像构建（离线）                                           │
-│                                                               │
-│ 服饰类目商品标题 + 规格数据                                    │
-│        ↓                                                      │
-│ 大模型特征提取（Qwen3-30B-A3B-AWQ）                           │
-│   → 8 种身体特征：体重区间、身高区间、尺码、鞋码等             │
-│        ↓                                                      │
-│ 商品画像（规格维度）→ Redis 存储（propValueId → 特征）         │
-│                                                               │
-│ 用户画像构建（离线）                                           │
-│                                                               │
-│ 用户历史购买订单记录                                           │
-│        ↓                                                      │
-│ 大模型特征提取（Qwen2.5-72B-Instruct）                        │
-│   → 尺码推断、体重区间、身高区间等                             │
-│        ↓                                                      │
-│ 用户尺码画像 → Redis 存储（userId → 特征区间集合）             │
-│                                                               │
-│ 增量滚动 T+1 更新商品画像 / 用户画像                          │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**在线匹配流程**（实时规格推荐）：
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 在线匹配                                                      │
-│                                                               │
-│ 用户画像（8 种特征区间）+ 商品画像（8 种特征维度）            │
-│        ↓                                                      │
-│ 特征匹配顺序配置化（支持动态调整）                             │
-│ 遍历各规格值，依次算覆盖率                                     │
-│   覆盖率 = 区间重叠范围 / 用户画像区间范围                     │
-│        ↓                                                      │
-│ 存在覆盖率 > 0 的规格？                                       │
-│   → True: 选择覆盖率最高的规格 → 匹配成功                     │
-│   → False: 继续处理下一个特征 → 全部失败则 Fallback 到 72B    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**核心处理器**：
-
-| 组件 | 职责 | 输入 | 输出 |
-|------|------|------|------|
-| `OrderAnalyzer` | 历史订单统计聚合 | `Order[]` | `RawProfileFeatures` |
-| `ProfileBuilder` | 特征工程，将原始统计转化为结构化画像 | `RawProfileFeatures` | `UserProfileEntity` |
-| `ConversationProfileUpdater` | 从对话中提取实时偏好更新 | `Message[]`, `UserProfileEntity` | `ProfileDelta` |
-| `SpecInferenceEngine` | 基于覆盖率算法匹配规格，fallback 调用模型 | `UserProfileEntity`, `ProductInfo` | `SpecRecommendation` |
-| `ColdStartManager` | 冷启动策略管理：群体画像查询、引导问题生成 | `UserProfileEntity` | `ColdStartAction` |
-| `ProfileDimensionRegistry` | 画像维度插件注册中心 | `ProfileDimensionPlugin` | 注册/注销确认 |
-
-### 2.2 轻量模型推理 — SFT/GRPO 微调 8B 替代 72B
-
-#### 2.2.1 业务背景与核心痛点
-
-电商提单页是用户下单的必经之路，对于多 SKU 商品，当前规格默选策略基本为"默选最低价"，但服饰类目有尺码等个性化信息，无法适用该策略。为提升服饰类目的默选渗透率，需要解决三大难题：**用户角色识别不准**、**尺码推荐偏差大**、**规格匹配率低**。
-
-系统引入 AI 大模型，根据用户历史下单记录构建用户特征画像，同时智能清洗商品规格，根据用户画像计算商品规格的匹配度和权重，推荐期望值最高的尺码和规格。但在实践中发现关键瓶颈：
-
-| 痛点 | 现状 | 影响 |
-|------|------|------|
-| **更新周期过长** | 采用 Qwen2.5-72B 提取画像，平均每天 173 万条，1 亿条数据需 58 天 | 画像时效性差，严重影响业务效果 |
-| **精准率不足** | 画像提取准确率从业务 AB 来看约 60% | 默选命中率低，用户体验差 |
-| **资源成本高** | 72B 模型需 2×X40 GPU | 无法大规模部署 |
-
-**目标**：将 Qwen2.5-72B 替换为轻量级 Qwen3-8B，通过 SFT + GRPO 强化学习 + Prompt 优化保证效果持平或更优，同时大幅降低推理延迟和资源成本。
-
-#### 2.2.2 技术演进路线
-
-整体经历了 **Prompt 调优 → SFT 微调 → 数据重构 + GRPO 强化学习** 三轮迭代：
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  第一阶段：Prompt 调优                                            │
-│  ├── 提取规则清晰化（将行业标准尺码换算写入 Prompt）              │
-│  ├── 输出格式标准化（XXL→2XL, 鞋码去单位, 体重统一斤）           │
-│  └── 成果：提取质量提升，数据质量标准化                           │
-│                                                                    │
-│  第二阶段：SFT 微调                                               │
-│  ├── 基于 Qwen3-8B (base) 进行 LoRA SFT                          │
-│  ├── 1W 条全量目标数据集                                          │
-│  ├── 数据来源：KAFKA + HIVE → Qwen3-30B/72B/7B 交叉验证          │
-│  └── 成果：Qwen3-8B(SFT) 评测 84.53，与 72B 仅差 6 分             │
-│                                                                    │
-│  第三阶段：数据重构 + GRPO 强化学习                                │
-│  ├── 交叉模型验证重建高质量数据集                                  │
-│  ├── GRPO 算法训练（组内相对优势 + 自定义奖励函数）               │
-│  └── 成果：Qwen3-8B(RL) 评测 89.52，接近 72B 的 90.42             │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-#### 2.2.3 Prompt 优化
-
-Prompt 优化是微调前的基础工作，核心方向是**制定明确的提取规则**，使轻量模型（8B）也能准确执行特征提取。
-
-**提取规则清晰化**：将行业标准尺码换算规则直接写入 Prompt，避免依赖模型隐式理解：
-
-| 特征 | 换算规则 | 示例 |
-|------|---------|------|
-| 胸围（内衣） | 国际码/下胸围码 → 区间；中国标准码 → 区间 | `32/XX → [68.0, 72.0]`；`70A/B/C → [68.0, 72.0]`；`M(85-110) → [85.0, 110.0]` |
-| 腰围（下装） | 直接数值 / 尺换算 / W码换算 | `腰围66-70cm → [66.0, 70.0]`；`2.6尺 → [86.7]`（×33.33）；`W26 → [66.0]`（×2.54） |
-| 脚长（鞋类） | 公式：`(鞋码+10)×5` mm；优先提取商品描述中的内长 | `35码 → 225mm`；`内长23.5cm → [235.0]`（优先） |
-| 童装尺码 | 与成人完全不同，`130码 → 身高 [120.0, 130.0]` | `120码 → [110.0, 120.0]` |
-
-**输出格式标准化**：
-
-- 上下装尺码统一：`XXL → 2XL`，`XXXL → 3XL`
-- 鞋码不加单位：`35码 → 35`
-- 脚长统一毫米：`[34, 35] → [340.0, 350.0]`
-- 体重统一为斤，身高统一为厘米
-- 无法判断角色时默认 `female`（女装销量最高）
-
-#### 2.2.4 训练数据集构建
-
-高质量训练数据是模型效果的基石。系统采用**交叉模型验证**（Cross-Model Validation）构建标注数据集。
-
-**方法选择**：
-
-| 方案 | 原理 | 适用场景 | 选择 |
-|------|------|---------|------|
-| 自一致性（Self-Consistency） | 单模型多次推理 + 多数投票 | 推理任务、开放问题 | |
-| 交叉模型验证（Cross-Model Validation） | 多模型单次推理 + 聚合比对 | **信息抽取、封闭问题** | **选用** |
-
-> 本任务是信息抽取（从商品描述/订单中提取尺码特征），答案相对确定，主要是识别和转换，推理较少，因此选择交叉模型验证。
-
-**标注流程**：
-
-```
-输入数据（商品标题+规格 / 用户订单记录）
-        ↓
-  三模型并行推理：
-  ├── Qwen2.5-72B
-  ├── Qwen3-30B-A3B-AWQ（量化 30B）
-  └── Qwen3-32B-AWQ
-        ↓
-  反序列化为 UserSpecProfile / ProductSpecProfile 对象
-        ↓
-  逐字段一致性判定：
-  ├── 2/3 模型一致 → 采纳为标准值
-  ├── 3 模型均不一致 → 打日志，人工判定
-  └── 构建最终标注输出
-        ↓
-  质量检查（长度分层 3:5:2，难度分布均衡）
-        ↓
-  输出高质量训练集 + 测试集
-```
-
-**数据质量要求**：
-
-| 维度 | 要求 |
-|------|------|
-| 准确性 | 答案事实准确，逻辑推理无误，引用信息可验证 |
-| 相关性 | 问答高度相关，回答直接解决问题，控制信息冗余 |
-| 多样性 | 长度分层（短:中:长 = 3:5:2），难度分布合理（简单:中等:困难） |
-
-#### 2.2.5 SFT 监督微调
-
-**训练配置**：
-
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| 基础模型 | Qwen3-8B (base) | |
-| 训练方式 | LoRA | 仅训练适配器权重，基础模型冻结 |
-| LoRA rank (r) | 32 | |
-| LoRA alpha | 32 | |
-| 数据集规模 | ~1W 条 | 全量目标数据（instruction/input/output 格式） |
-| Learning Rate | 5e-5 | |
-| Epochs | 3~5 | |
-| Batch Size | 8 | |
-| Dropout | 0.05 | |
-
-**SFT 数据格式**：
-
-```json
-{
-  "instruction": "根据以下商品信息，提取商品的身体特征画像...",
-  "input": "商品标题：秋冬圆领短款卫衣L 160-165\n规格：尺码L, 身高区间160-165cm",
-  "output": "{\"height\": [160.0, 165.0], \"weight\": [80.0, 110.0], \"size\": \"L\", ...}"
-}
-```
-
-**SFT 产出**：导出 LoRA adapter 权重（`LoRA_adapter_sft`），合并到基础模型得到 `Qwen3-8B(SFT)`。
-
-#### 2.2.6 GRPO 强化学习
-
-在 SFT 基础上，进一步使用 GRPO（Group Relative Policy Optimization）强化学习优化模型，让模型在"试错"中学习更好的输出，而非仅模仿标注答案。
-
-**GRPO vs PPO**：
-
-| 维度 | PPO | GRPO（选用） |
-|------|-----|------|
-| Value Model | 需要，用于估计 V(s) | **不需要** |
-| 优势估计 | `A = R - V(s)` | **组内相对比较**，天然基线 |
-| 显存占用 | 较高 | **较低** |
-| 每 prompt 采样数 | 通常 1 | G 个（4-16） |
-| 典型应用 | ChatGPT, GPT-4 | **DeepSeek-R1, DeepSeek-Math** |
-
-**GRPO 核心算法**：
-
-```
-对每个 prompt q，生成 G 个回答 {o₁, o₂, ..., o_G}
-每个回答获得奖励 {r₁, r₂, ..., r_G}
-
-基线 baseline = mean(r₁, ..., r_G)
-标准差 std = std(r₁, ..., r_G)
-优势 Aᵢ = (rᵢ - baseline) / (std + ε)
-
-→ Aᵢ > 0：该回答优于组内平均，强化其生成概率
-→ Aᵢ < 0：该回答劣于组内平均，抑制其生成概率
-→ 加入 KL 散度惩罚，防止策略偏离参考模型过远
-```
-
-**训练配置**：
-
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| 基础模型 | Qwen3-8B(SFT) | SFT 产出作为 RL 起点 |
-| 算法 | GRPO | |
-| Group Size (G) | 8 | 每个 prompt 生成 8 个候选回答 |
-| Learning Rate | 1e-6 | 比 SFT 更小 |
-| KL 系数 (β) | 0.04 | 控制策略偏离程度 |
-| Clip Range (ε) | 0.2 | 策略比率裁剪 |
-| Temperature | 0.7 | 保证采样多样性 |
-| LoRA Rank | 16 | |
-| LoRA Target | `q_proj, v_proj, k_proj, o_proj` | |
-
-**奖励函数设计**：
-
-奖励函数是强化学习的核心，决定训练方向。系统将业务评测脚本改造为 Python 奖励函数，主要目标是让模型提取特征覆盖更广、更精准：
-
-```python
-class SpecExtractionReward(ORM):
-    """逐字段比对模型输出与标准答案，计算归一化奖励"""
-
-    def __call__(self, completions: List[str], **kwargs) -> List[float]:
-        scores = []
-        for i, completion in enumerate(completions):
-            solution = json.loads(completion.strip()) if completion.strip() else {}
-            field_scores = []
-            for field in ['weight', 'height', 'waistline', 'bust',
-                          'footLength', 'size', 'bottomSize', 'shoeSize']:
-                predicted = solution.get(field)
-                expected = kwargs.get(field, [None])[i]
-                field_scores.append(self._compare_field(predicted, expected, field))
-            scores.append(sum(field_scores) / len(field_scores))
-        return scores
-
-    def _compare_field(self, predicted, expected, field_name):
-        if expected is None:
-            return 1.0 if predicted is None else 0.0
-        if isinstance(expected, list) and len(expected) == 2:
-            # 区间类字段：计算重叠率
-            return self._interval_overlap_score(predicted, expected)
-        # 集合/单值字段：严格匹配
-        return 1.0 if str(predicted).lower() == str(expected).lower() else 0.0
-```
-
-**GRPO 训练数据格式**：
-
-```json
-{
-  "system": "你是一个专业的电商商品特征提取专家...",
-  "prompt": "请从以下商品信息中提取身体特征画像...\n商品标题：连帽羽绒服S（80-110斤）",
-  "response": "{\"weight\": [80.0, 110.0], \"size\": \"S\", ...}"
-}
-```
-
-**训练监控**：核心关注 `eval/loss`（逐渐降低 = 拟合效果好）和 `eval/reward`（逐渐提升 = 提取质量提高）。
-
-#### 2.2.7 评测结果
-
-| 指标 | Qwen2.5-72B（旧 Prompt，线上） | Qwen2.5-72B（新 Prompt） | Qwen3-8B(SFT) | Qwen3-8B(RL) |
-|------|------|------|------|------|
-| **部署规格** | 1×2 X40 | 1×2 X40 | 1×1 X40 | 1×1 X40 |
-| **评测得分** | 71.59 | 90.42 | 84.53 | **89.52** |
-| **推理耗时（450 条）** | 11min | 42min | 6.66min | ~7min |
-| **资源成本** | 2 GPU | 2 GPU | **1 GPU** | **1 GPU** |
-
-**关键结论**：
-
-- **Prompt 优化效果显著**：72B 模型从 71.59 → 90.42（+26%），说明提取规则清晰化和输出标准化是基础且高效的优化手段
-- **GRPO 强化学习显著优于纯 SFT**：8B(RL) 89.52 vs 8B(SFT) 84.53（+5.9%），接近 72B 新 Prompt 的 90.42
-- **成本降低 50%+**：从 2×X40 GPU 降至 1×X40 GPU，推理耗时从 42min 降至 ~7min（6x 加速）
-- 最终业务效果以线上 A/B 数据为准
-
-#### 2.2.8 模型槽位架构
-
-系统实现**标准化模型槽位架构**，允许在不修改业务逻辑的前提下切换底层推理模型（72B ↔ 8B-SFT ↔ 8B-RL），支持 A/B 流量路由和自动降级。
-
-**模型槽位接口（`ModelSlot`）**：
-
-```typescript
-interface ModelSlot {
-  slotId: string;
-  modelType: 'spec_inference' | 'profile_extraction' | 'conversation' | 'intent_classify';
-  provider: ModelProvider;
-  config: ModelConfig;
-  healthCheck(): Promise<HealthStatus>;
-  warmup(): Promise<void>;
-}
-
-interface ModelProvider {
-  name: string;                       // e.g. "qwen3-8b-rl", "qwen2.5-72b"
-  endpoint: string;                   // 推理服务地址
-  modelId: string;
-  maxTokens: number;
-  temperature: number;
-  timeout: number;                    // 推理超时 ms
-}
-
-interface ModelConfig {
-  batchSize: number;
-  enableFallback: boolean;
-  fallbackProvider?: ModelProvider;
-  cacheTTL: number;
-  maxRetries: number;
-  retryDelay: number;
-}
-
-interface HealthStatus {
-  healthy: boolean;
-  latencyP50: number;
-  latencyP99: number;
-  errorRate: number;
-  lastCheckAt: string;
-}
-```
-
-**模型管理器（`ModelSlotManager`）**：
-
-| 能力 | 说明 |
-|------|------|
-| **注册/注销** | `registerSlot(slot: ModelSlot)` / `unregisterSlot(slotId)` 动态管理 |
-| **热切换** | `switchProvider(slotId, newProvider)` 零停机切换底层模型 |
-| **健康检查** | 定时探活（每 30s），不健康自动 fallback |
-| **指标收集** | 每次推理记录耗时、token 数、成功/失败，通过 EventBus 广播 |
-| **A/B 路由** | `routeByABTest(slotId, abConfig)` 按流量百分比分流到不同模型 |
-
-**模型部署与路由**：
-
-```
-用户画像 + 商品信息
-        ↓
-  SpecInferenceEngine.infer(profile, product)
-        ↓
-  ┌─────────────────────────────────────────────────┐
-  │ Step 1: 覆盖率算法匹配（零模型调用）              │
-  │   → 遍历商品各规格值，按配置顺序计算覆盖率       │
-  │   → 覆盖率 = 区间重叠 / 用户画像区间              │
-  │   → 存在覆盖率 > 0 的规格？→ 选覆盖率最高 → 命中 │
-  └─────────────┬───────────────────────────────────┘
-                ↓ 未命中（所有特征均无重叠）
-  ┌─────────────────────────────────────────────────┐
-  │ Step 2: 模型推理 Fallback                        │
-  │   ModelSlotManager.infer('spec_inference', prompt)│
-  │                                                   │
-  │   路由决策：                                       │
-  │   ├── A/B 测试？→ 按比例分流                       │
-  │   ├── 健康？  → 主模型 Qwen3-8B(RL)               │
-  │   │             P50: ~7min/450条 (1×X40)          │
-  │   └── 不健康？→ fallback Qwen2.5-72B              │
-  │                 P50: ~42min/450条 (2×X40)         │
-  └─────────────┬───────────────────────────────────┘
-                ↓
-  推理结果解析 → SpecRecommendation
-        ↓
-  结果缓存 → Redis (key=userId:productId:profileVersion)
-        ↓
-  EventBus.publish('model:inference')
-```
-
-#### 2.2.9 推荐解释性（三层结构化解释）
+### 2.1 推荐解释性（三层结构化解释）
 
 > 参考 FIRE（arxiv 2025，SHAP 忠实解释）、Amazon Fashion（社会证明）、Sizebay 行业数据（33% 购物者因尺码不确定放弃购物车）。
 > 详细调研见 `.claude/skills/tech-researcher/references/profile-explainability-and-conflict.md`。
@@ -638,7 +43,7 @@ function generateExplanation(ctx: ExplanationContext): {
 
 **关键原则**（FIRE 论文）：解释必须**忠实于覆盖率算法的实际计算结果**，不能让 LLM 自由编造。每个特征的匹配度直接来自 `computeCoverage()` 的输出。
 
-#### 2.2.10 对话偏好覆写与置信度仲裁（混合方案）
+### 2.2 对话偏好覆写与置信度仲裁（混合方案）
 
 > 参考 ContraSolver（偏好图）、AWARE-US（约束放松）、ACL 2020（用户记忆图）。
 > 方案决策调研见 `.claude/skills/tech-researcher/references/confidence-arbitration-model-hybrid.md`。
@@ -721,13 +126,46 @@ function arbitrate(existing: number, incoming: PreferenceSignal): 'accept' | 'me
 
 ### 2.3 会话记忆与上下文管理
 
-系统采用**画像 Store + 滑动窗口**的简洁记忆架构。用户画像是结构化确定性数据，始终通过 `summarizeForPrompt()` 注入 System Prompt，不需要复杂的分层记忆检索。
+> 参考 arxiv 2603.07670（Memory for Autonomous LLM Agents, 2026）、LangGraph 双层记忆、Mem0 记忆层。
+> 核心结论：**画像引擎本身就是长期记忆**（等价于 Mem0 的 fact extraction），唯一缺口是单会话内长对话的上下文丢失。
 
-- **画像 Store**：Redis（RedisJSON）+ JSON 文件落盘，跨会话持久
-- **滑动窗口**：最近 K 轮对话（默认 K=10），FIFO 淘汰，超出直接丢弃
-- **会话持久化**：SessionManager + JSONL append-only 写入，支持重建
+系统采用**画像 Store + 滑动窗口 + 分段压缩**的记忆架构：
 
-Prompt 拼接使用 TypeScript 模板字面量（画像摘要 + 场景指令 + Guardrails 约束 + 滑动窗口消息）。
+- **画像 Store（跨会话持久）**：Redis（RedisJSON）+ JSON 文件落盘，用户的尺码/体重/偏好等结构化数据跨会话持久化，通过 `summarizeForPrompt()` 注入 System Prompt
+- **滑动窗口（会话内实时）**：最近 K 轮对话（默认 K=10）保留完整消息，FIFO 淘汰
+- **分段压缩（窗口外摘要）**：溢出窗口的消息按段压缩为结构化摘要，被动注入 System Prompt，防止长对话丢失关键上下文（如角色切换、尺码纠正）
+- **会话持久化**：SessionManager + JSONL append-only 写入，支持按 sessionId 重建
+
+**分段压缩机制**：
+
+```
+窗口溢出触发 → 溢出消息分段（固定5轮 or 角色切换强制分段）
+    → LLM 压缩为 CompressedSegment（摘要 + keyFacts + turnRange）
+    → 被动注入 System Prompt 的 [历史摘要] 区域
+```
+
+```typescript
+interface CompressedSegment {
+  segmentIndex: number;
+  turnRange: [number, number];  // JSONL 行号范围，可回查原始消息
+  summary: string;              // "用户为老公选购夹克，身高178体重155斤"
+  keyFacts: string[];           // ["角色切换:male", "身高:178", "体重:155"]
+  intent: WorkflowType;
+}
+```
+
+**Prompt 拼接结构**：
+
+```
+System Prompt = 画像摘要 + [历史摘要]（压缩段索引列表） + 场景指令 + Guardrails 约束
+Messages = 滑动窗口内的完整消息（最近 K 轮）
+```
+
+**设计决策记录**：
+- 不实现 L1/L2/L3 三层分层记忆（画像 Store 已覆盖长期记忆需求，分层检索是过度设计）
+- 不引入向量记忆（Mem0 式）（与结构化画像引擎功能重复）
+- 摘要被动注入而非主动检索（当前 Agent 无 tool use / ReAct 循环，被动注入零延迟）
+- 主动检索（`recall_context` tool）作为中期演进方向，需先实现 ReAct 循环
 
 ### 2.4 EventBus + Subscriber 运行时解耦
 
@@ -920,3 +358,6 @@ const productConsult = new WorkflowGraph<ConsultState>()
 | 输出 | 承诺合规检查 | "保证退全款"等未授权承诺拦截 |
 
 触发时通过 `EventBus.publish('guardrail:blocked')` 广播，AlertSubscriber 记录告警。
+
+
+---

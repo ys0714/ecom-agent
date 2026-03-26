@@ -9,6 +9,7 @@ import { PreferenceDetector, detectAllByRules } from './services/profile-engine/
 import { arbitrate } from './services/profile-engine/confidence-arbitrator.js';
 import { generateExplanation, formatExplanationForReply } from './services/profile-engine/explanation-generator.js';
 import { SpecRecommendationEvaluator } from './services/data-flywheel/evaluator.js';
+import { SegmentCompressor } from './services/context/segment-compressor.js';
 import type { ProfileStore } from './services/profile-store.js';
 import type { ProductService } from '../infra/adapters/product-service.js';
 import type { LLMClient } from '../infra/adapters/llm.js';
@@ -25,15 +26,18 @@ export interface AgentDeps {
   llmClient?: LLMClient;
   evaluator?: SpecRecommendationEvaluator;
   slidingWindowSize?: number;
+  segmentCompressor?: SegmentCompressor;
 }
 
 export class Agent {
   private deps: AgentDeps;
   private windowSize: number;
+  private compressor: SegmentCompressor;
 
   constructor(deps: AgentDeps) {
     this.deps = deps;
     this.windowSize = deps.slidingWindowSize ?? 10;
+    this.compressor = deps.segmentCompressor ?? new SegmentCompressor({ llmClient: deps.llmClient });
   }
 
   async handleMessage(
@@ -73,6 +77,20 @@ export class Agent {
     let coldStartHint = '';
     if (coldAction.type === 'ask_preference') {
       coldStartHint = `\n\n另外，${coldAction.question}`;
+    }
+
+    const overflowCount = conversationHistory.length - this.windowSize;
+    if (overflowCount > 0) {
+      const overflowMessages = conversationHistory.slice(0, overflowCount);
+      const newOverflow = overflowMessages.slice(-(overflowCount));
+      const prevLen = conversationHistory.length - newOverflow.length - this.windowSize;
+      if (newOverflow.length > 0 && prevLen >= 0) {
+        await this.compressor.addOverflow(
+          newOverflow,
+          intentResult.intent,
+          prefSignal.type === 'role_switch',
+        );
+      }
     }
 
     const systemPrompt = this.buildSystemPrompt(profile, intentResult.intent);
@@ -143,6 +161,7 @@ export class Agent {
     conversationHistory.push(assistantMsg);
     eventBus.publish(createEvent('message:assistant', { content: reply }, sessionId));
 
+    const compressedSegments = this.compressor.getSegments();
     const debug: Record<string, unknown> = {
       intent: intentResult.intent,
       latencyMs: Date.now() - startTime,
@@ -150,6 +169,7 @@ export class Agent {
       preferenceSignal: prefSignal,
       arbitration: activeRole ? { activeRole } : null,
       recommendation,
+      memory: compressedSegments.length > 0 ? { segments: compressedSegments, totalSegments: compressedSegments.length } : null,
     };
 
     return { reply, intent: intentResult.intent, recommendation, debug };
@@ -163,6 +183,8 @@ export class Agent {
         ? `用户画像（积累中）：${profile.summarizeForPrompt()}`
         : '暂无用户画像，请在对话中主动询问用户的身高、体重、常穿尺码等信息。';
 
+    const historySection = this.compressor.formatForPrompt();
+
     const workflowInstructions: Record<WorkflowType, string> = {
       product_consult: '帮助用户选购商品，提供规格推荐和比价建议。',
       after_sale: '处理退款、退货、换货等售后问题。',
@@ -172,7 +194,7 @@ export class Agent {
     };
 
     return `你是一个专业的电商客服。
-${profileSection}
+${profileSection}${historySection}
 当前场景：${workflowInstructions[workflow]}
 ${GUARDRAIL_INSTRUCTIONS}
 回复要求：简洁专业，不超过200字。`;
@@ -188,7 +210,7 @@ ${GUARDRAIL_INSTRUCTIONS}
     const product = await this.findProduct(userText);
     if (!product) return null;
 
-    return matchSpecs(profile, product);
+    return matchSpecs(profile, product, undefined, overrideRole);
   }
 
   private async findProduct(userText: string): Promise<ProductInfo | null> {

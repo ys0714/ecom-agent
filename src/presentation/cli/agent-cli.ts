@@ -90,9 +90,12 @@ async function main() {
         prompt(); return;
       }
       if (trimmed === '/products') {
-        const p = await productService.getProductById('p101');
-        if (p) console.log(`${p.productId}: ${p.productName} (${p.specs.length} 规格)`);
-        console.log('提示: 在消息中包含商品ID(如 p101)可触发规格推荐\n');
+        const ids = ['p101', 'p102', 'p103', 'p201', 'p202', 'p203', 'p301', 'p302'];
+        for (const id of ids) {
+          const p = await productService.getProductById(id);
+          if (p) console.log(`  ${p.productId}: ${p.productName} (¥${p.price}, ${p.specs.length}个规格)`);
+        }
+        console.log('\n提示: 在消息中包含商品ID(如 p101)可触发规格推荐\n');
         prompt(); return;
       }
 
