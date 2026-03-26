@@ -42,6 +42,29 @@ export default function ChatPanel({ apiBase, userId, sessionId, productId, onDeb
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/conversation/${sessionId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.messages && Array.isArray(data.messages)) {
+            const displayMessages = data.messages.map((m: Message) => {
+              if (m.role === 'user' && m.content.startsWith('[当前正在浏览商品:')) {
+                return { ...m, content: m.content.replace(/\[当前正在浏览商品:.*?\]\s*/, '') };
+              }
+              return m;
+            });
+            setMessages(displayMessages);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load history:', err);
+      }
+    };
+    fetchHistory();
+  }, [apiBase, sessionId]);
+
   const send = async () => {
     if (!input.trim() || loading) return;
     const text = input.trim();

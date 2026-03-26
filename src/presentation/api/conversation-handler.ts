@@ -65,4 +65,18 @@ export function registerConversationRoutes(
       debug: result.debug,
     });
   });
+
+  app.get<{
+    Params: { sessionId: string };
+  }>('/api/conversation/:sessionId', async (request, reply) => {
+    const { sessionId } = request.params as { sessionId: string };
+    let session = sessionManager.get(sessionId);
+    if (!session) {
+      session = await sessionManager.load(sessionId) ?? undefined;
+    }
+    return reply.send({
+      sessionId,
+      messages: session?.messages ?? [],
+    });
+  });
 }
