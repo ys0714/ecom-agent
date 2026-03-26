@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Agent } from '../../application/agent.js';
 import type { ProfileStore } from '../../application/services/profile-store.js';
+import type { ProfileProvider } from '../../application/services/profile-provider.js';
 import { SessionManager } from '../../application/services/session-manager.js';
 import { UserProfileEntity } from '../../domain/entities/user-profile.entity.js';
 import { InputGuard } from '../../application/guardrails/input-guard.js';
@@ -13,6 +14,7 @@ export function registerConversationRoutes(
   app: FastifyInstance,
   agent: Agent,
   profileStore: ProfileStore,
+  profileProvider: ProfileProvider,
   sessionManager: SessionManager,
 ) {
   app.post<{
@@ -37,7 +39,12 @@ export function registerConversationRoutes(
 
     let profile = await profileStore.load(userId);
     if (!profile) {
-      profile = new UserProfileEntity(userId);
+      profile = await profileProvider.getProfile(userId);
+      if (profile) {
+        await profileStore.save(profile); // 缓存到本地/Redis
+      } else {
+        profile = new UserProfileEntity(userId);
+      }
     }
 
     const result = await agent.handleMessage(

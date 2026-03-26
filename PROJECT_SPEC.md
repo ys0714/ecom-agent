@@ -493,6 +493,7 @@ const productConsult = new WorkflowGraph<ConsultState>()
 │  └── adapters/               → 外部实现适配器                        │
 │      ├── llm.ts              → OpenAI 协议大模型调用                 │
 │      ├── redis.ts            → 内存或真实 Redis 适配                 │
+│      ├── mock-profile-provider.ts→ 画像系统 Mock 提供者              │
 │      ├── product-service.ts  → 外部商品服务适配                      │
 │      └── logger.ts           → 日志格式化工具                        │
 └─────────────────────────────────────────────────────────────────────┘

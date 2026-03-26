@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { buildServer } from '../../src/presentation/server.js';
 import { Agent } from '../../src/application/agent.js';
 import { ProfileStore } from '../../src/application/services/profile-store.js';
+import { MockProfileProvider } from '../../src/infra/adapters/mock-profile-provider.js';
 import { SessionManager } from '../../src/application/services/session-manager.js';
 import { ModelSlotManager } from '../../src/application/services/model-slot/model-slot-manager.js';
 import { IntentRouter } from '../../src/application/workflow/intent-router.js';
@@ -19,6 +20,7 @@ describe('Last Mile Integration: end-to-end recommendation flow', () => {
   const tmpDir = path.join(os.tmpdir(), `e2e-${Date.now()}`);
   const redis = new InMemoryRedisClient();
   const profileStore = new ProfileStore(redis, path.join(tmpDir, 'profiles'));
+  const profileProvider = new MockProfileProvider();
   const sessionManager = new SessionManager(path.join(tmpDir, 'sessions'));
   const eventBus = new InMemoryEventBus();
   const productService = new MockProductService();
@@ -39,7 +41,7 @@ describe('Last Mile Integration: end-to-end recommendation flow', () => {
     slidingWindowSize: 10,
   });
 
-  const app = buildServer(agent, profileStore, config, sessionManager);
+  const app = buildServer(agent, profileStore, profileProvider, config, sessionManager);
 
   beforeAll(async () => {
     const profile = new UserProfileEntity('e2e-user', {

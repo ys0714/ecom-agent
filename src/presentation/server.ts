@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import fs from 'node:fs/promises';
 import type { Agent } from '../application/agent.js';
 import type { ProfileStore } from '../application/services/profile-store.js';
+import type { ProfileProvider } from '../application/services/profile-provider.js';
 import { SessionManager } from '../application/services/session-manager.js';
 import type { MetricsSubscriber } from '../application/subscribers/metrics-subscriber.js';
 import type { ConfigWatchSubscriber } from '../application/subscribers/config-watch-subscriber.js';
@@ -17,6 +18,7 @@ import { registerMetricsRoutes } from './api/metrics-handler.js';
 export interface ServerDeps {
   agent: Agent;
   profileStore: ProfileStore;
+  profileProvider: ProfileProvider;
   config: AppConfig;
   sessionManager?: SessionManager;
   metricsSubscriber?: MetricsSubscriber;
@@ -27,10 +29,11 @@ export interface ServerDeps {
 }
 
 export function buildServer(deps: ServerDeps): ReturnType<typeof Fastify>;
-export function buildServer(agent: Agent, profileStore: ProfileStore, config: AppConfig, sessionManager?: SessionManager): ReturnType<typeof Fastify>;
+export function buildServer(agent: Agent, profileStore: ProfileStore, profileProvider: ProfileProvider, config: AppConfig, sessionManager?: SessionManager): ReturnType<typeof Fastify>;
 export function buildServer(
   agentOrDeps: Agent | ServerDeps,
   profileStore?: ProfileStore,
+  profileProvider?: ProfileProvider,
   config?: AppConfig,
   sessionManager?: SessionManager,
 ) {
@@ -38,7 +41,7 @@ export function buildServer(
   if ('agent' in agentOrDeps && 'config' in agentOrDeps) {
     deps = agentOrDeps as ServerDeps;
   } else {
-    deps = { agent: agentOrDeps as Agent, profileStore: profileStore!, config: config!, sessionManager };
+    deps = { agent: agentOrDeps as Agent, profileStore: profileStore!, profileProvider: profileProvider!, config: config!, sessionManager };
   }
 
   const app = Fastify({ logger: deps.config.server.nodeEnv !== 'test' });
@@ -93,8 +96,8 @@ export function buildServer(
     };
   });
 
-  registerConversationRoutes(app, deps.agent, deps.profileStore, sessMgr);
-  registerProfileRoutes(app, deps.profileStore);
+  registerConversationRoutes(app, deps.agent, deps.profileStore, deps.profileProvider, sessMgr);
+  registerProfileRoutes(app, deps.profileStore, deps.profileProvider);
   registerAdminRoutes(app, deps.configWatch, deps.autoPrompt);
   registerMetricsRoutes(app, deps.metricsSubscriber);
 

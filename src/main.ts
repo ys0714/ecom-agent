@@ -19,10 +19,12 @@ import { TuningAdvisor } from './application/services/data-flywheel/tuning-advis
 import { SpecRecommendationEvaluator } from './application/services/data-flywheel/evaluator.js';
 import { SegmentCompressor } from './application/services/context/segment-compressor.js';
 import { buildServer } from './presentation/server.js';
+import { MockProfileProvider } from './infra/adapters/mock-profile-provider.js';
 
 const eventBus = new InMemoryEventBus();
 const redis = new InMemoryRedisClient();
 const profileStore = new ProfileStore(redis, config.paths.profiles);
+const profileProvider = new MockProfileProvider();
 const productService = new MockProductService();
 
 const llmClient = createLLMClient({
@@ -78,6 +80,7 @@ eventBus.register(autoPrompt);
 const server = buildServer({
   agent,
   profileStore,
+  profileProvider,
   config,
   configWatch,
   autoPrompt,

@@ -100,6 +100,7 @@ src/
 │   │   ├── data-flywheel/           #   数据飞轮（Trace→评估→归因→调优→A/B）
 │   │   ├── evaluation/              #   LLM-as-Judge
 │   │   ├── profile-store.ts         #   画像持久化
+│   │   ├── profile-provider.ts      #   外部画像接入接口
 │   │   └── session-manager.ts       #   会话管理 + JSONL 持久化
 │   └── subscribers/                 #   EventBus Subscriber（6 个）
 ├── infra/                           # 基础设施层
@@ -108,6 +109,7 @@ src/
 │   │   ├── llm.ts                   #     OpenAI-compatible
 │   │   ├── redis.ts                 #     ioredis + InMemory mock
 │   │   ├── logger.ts                #     JSON 结构化日志
+│   │   ├── mock-profile-provider.ts #     画像系统 Mock 提供者
 │   │   └── product-service.ts       #     商品适配器
 │   └── observability/
 │       └── otel-setup.ts            #     OTel SDK + 自动插桩 + Prometheus Exporter

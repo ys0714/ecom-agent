@@ -3,8 +3,8 @@ import readline from 'node:readline';
 import { config } from '../../infra/config.js';
 import { createLLMClient } from '../../infra/adapters/llm.js';
 import { InMemoryRedisClient } from '../../infra/adapters/redis.js';
-import { MockOrderService } from '../../infra/adapters/order-service.js';
 import { MockProductService } from '../../infra/adapters/product-service.js';
+import { MockProfileProvider } from '../../infra/adapters/mock-profile-provider.js';
 import { InMemoryEventBus, createEvent } from '../../domain/event-bus.js';
 import { ProfileStore } from '../../application/services/profile-store.js';
 import { ModelSlotManager } from '../../application/services/model-slot/model-slot-manager.js';
@@ -18,7 +18,7 @@ async function main() {
   const eventBus = new InMemoryEventBus();
   const redis = new InMemoryRedisClient();
   const profileStore = new ProfileStore(redis, config.paths.profiles);
-  const orderService = new MockOrderService();
+  const profileProvider = new MockProfileProvider();
   const productService = new MockProductService();
 
   eventBus.register({
@@ -51,21 +51,17 @@ async function main() {
 
   // Mock loading profile from Profile Extraction System
   const userId = 'cli-user';
-  console.log('正在从画像存储加载用户画像（由独立画像提取系统生成）...');
-  const profile = new UserProfileEntity(userId, {
-    defaultRole: 'female',
-    femaleClothing: {
-      weight: [100, 115],
-      height: [160, 168],
-      waistline: [66, 72],
-      size: ['M'],
-      shoeSize: ['37', '38'],
-      footLength: [235, 245],
-      bust: null,
-      bottomSize: ['M'],
+  console.log('正在通过 ProfileProvider 加载用户画像（模拟由独立画像提取系统生成）...');
+  
+  let profile = await profileStore.load(userId);
+  if (!profile) {
+    profile = await profileProvider.getProfile(userId);
+    if (profile) {
+      await profileStore.save(profile);
+    } else {
+      profile = new UserProfileEntity(userId);
     }
-  }, { totalOrders: 12, dataFreshness: 1.0, lastOrderAt: new Date().toISOString() });
-  await profileStore.save(profile);
+  }
   console.log(`画像加载完成（完整度 ${Math.round(profile.getCompleteness() * 100)}%）\n`);
 
   const agent = new Agent({

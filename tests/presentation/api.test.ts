@@ -9,6 +9,7 @@ import { InMemoryEventBus } from '../../src/domain/event-bus.js';
 import { InMemoryRedisClient } from '../../src/infra/adapters/redis.js';
 import { UserProfileEntity } from '../../src/domain/entities/user-profile.entity.js';
 import { config } from '../../src/infra/config.js';
+import { MockProfileProvider } from '../../src/infra/adapters/mock-profile-provider.js';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -26,13 +27,15 @@ describe('API endpoints', () => {
     { batchSize: 1, enableFallback: false, cacheTTL: 0, maxRetries: 0, retryDelayMs: 0 },
   );
 
+  const profileProvider = new MockProfileProvider();
+
   const agent = new Agent({
     eventBus, profileStore, modelSlotManager,
     intentRouter: new IntentRouter(),
     coldStartManager: new ColdStartManager(),
   });
 
-  const app = buildServer(agent, profileStore, config);
+  const app = buildServer(agent, profileStore, profileProvider, config);
 
   afterAll(async () => { await app.close(); });
 
