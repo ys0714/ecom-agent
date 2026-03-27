@@ -41,18 +41,6 @@ export class SessionManager {
     }
   }
 
-  async persist(sessionId: string): Promise<void> {
-    const session = this.activeSessions.get(sessionId);
-    if (!session) return;
-
-    await fs.mkdir(this.sessionsDir, { recursive: true });
-    const filePath = path.join(this.sessionsDir, `${sessionId}.jsonl`);
-    const lines = session.messages
-      .map((m) => JSON.stringify({ ...m, sessionId }))
-      .join('\n') + '\n';
-    await fs.writeFile(filePath, lines, 'utf-8');
-  }
-
   async load(sessionId: string): Promise<SessionData | null> {
     try {
       const filePath = path.join(this.sessionsDir, `${sessionId}.jsonl`);
@@ -61,10 +49,21 @@ export class SessionManager {
         .filter(Boolean)
         .map((line) => {
           const parsed = JSON.parse(line);
-          // Only map valid messages (ignore raw string logs or legacy malformed lines)
+          
+          // Format 1: Event Log format (Event Sourcing from SessionLogSubscriber)
+          if (parsed.type === 'message:user' || parsed.type === 'message:assistant') {
+            return { 
+              role: parsed.type.split(':')[1], 
+              content: parsed.payload?.content || '', 
+              timestamp: parsed.timestamp 
+            };
+          }
+          
+          // Format 2: Legacy persist format (from older code versions)
           if (parsed.role === 'user' || parsed.role === 'assistant' || parsed.role === 'system') {
             return { role: parsed.role, content: parsed.content, timestamp: parsed.timestamp, name: parsed.name, toolCallId: parsed.toolCallId };
           }
+          
           return null;
         }).filter((m): m is Message => m !== null);
 

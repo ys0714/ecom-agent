@@ -54,8 +54,6 @@ export function registerConversationRoutes(
     const outputCheck = outputGuard.checkAndSanitize(result.reply);
     const finalReply = outputCheck.sanitizedContent ?? result.reply;
 
-    await sessionManager.persist(sessionId);
-
     return reply.send({
       sessionId,
       reply: finalReply,
