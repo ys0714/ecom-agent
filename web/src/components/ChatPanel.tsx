@@ -75,8 +75,7 @@ export default function ChatPanel({ apiBase, userId, sessionId, productId, onDeb
     setLoading(true);
 
     try {
-      // 隐式注入商品上下文到第一句话，保持 UI 干净的同时让后端感知当前商品
-      const payloadMessage = (messages.length === 0 && productId) 
+      const payloadMessage = productId 
         ? `[当前正在浏览商品: ${productId}] ${text}` 
         : text;
 

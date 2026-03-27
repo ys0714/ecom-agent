@@ -132,4 +132,39 @@ describe('ColdStartManager', () => {
     expect(mgr.shouldFilterBadCase(cold)).toBe(true);
     expect(mgr.shouldFilterBadCase(hot)).toBe(false);
   });
+
+  it('isolates asked questions per userId', () => {
+    const mgr = new ColdStartManager();
+    const profileA = new UserProfileEntity('userA');
+    const profileB = new UserProfileEntity('userB');
+
+    const a1 = mgr.getAction(profileA, 'userA');
+    const b1 = mgr.getAction(profileB, 'userB');
+    expect(a1.type).toBe('ask_preference');
+    expect(b1.type).toBe('ask_preference');
+    if (a1.type === 'ask_preference' && b1.type === 'ask_preference') {
+      expect(a1.question).toBe(b1.question);
+    }
+
+    const a2 = mgr.getAction(profileA, 'userA');
+    const b2 = mgr.getAction(profileB, 'userB');
+    if (a2.type === 'ask_preference' && b2.type === 'ask_preference') {
+      expect(a2.question).toBe(b2.question);
+    }
+  });
+
+  it('reset(userId) only clears that user', () => {
+    const mgr = new ColdStartManager();
+    const profileA = new UserProfileEntity('userA');
+    const profileB = new UserProfileEntity('userB');
+
+    const a1 = mgr.getAction(profileA, 'userA');
+    mgr.getAction(profileB, 'userB');
+
+    mgr.reset('userA');
+    const a1Again = mgr.getAction(profileA, 'userA');
+    if (a1.type === 'ask_preference' && a1Again.type === 'ask_preference') {
+      expect(a1Again.question).toBe(a1.question);
+    }
+  });
 });

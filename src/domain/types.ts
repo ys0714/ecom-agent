@@ -273,6 +273,7 @@ export type EventPriority = 'critical' | 'normal' | 'low';
 export type AgentEventType =
   | 'agent:start' | 'agent:stop'
   | 'message:user' | 'message:assistant'
+  | 'turn:trace'
   | 'tool:call' | 'tool:result'
   | 'profile:updated'
   | 'model:inference' | 'model:fallback' | 'model:health_check'

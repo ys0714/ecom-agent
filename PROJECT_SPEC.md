@@ -448,7 +448,6 @@ const productConsult = new WorkflowGraph<ConsultState>()
 │  │   └── workflow-graph.ts        → 状态机节点图实现                   │
 │  ├── services/                                                       │
 │  │   ├── profile-engine/                                             │
-│  │   │   ├── order-analyzer.ts        → 订单记录解析                 │
 │  │   │   ├── spec-inference.ts        → 规格匹配与推理计算            │
 │  │   │   ├── preference-detector.ts   → 用户偏好检测（规则+LLM）      │
 │  │   │   ├── explanation-generator.ts → 推荐解释生成                 │
@@ -469,8 +468,9 @@ const productConsult = new WorkflowGraph<ConsultState>()
 │  │   │   └── prompt-optimizer.ts      → Prompt 优化建议              │
 │  │   ├── context/                                                    │
 │  │   │   └── segment-compressor.ts    → 窗口外历史对话压缩记忆        │
-│  │   ├── session-manager.ts           → 会话持久化                   │
-│  │   └── profile-store.ts             → 画像持久化                   │
+│  │   ├── session-manager.ts           → 会话管理 + Event Sourcing    │
+│  │   ├── profile-store.ts             → 画像持久化                   │
+│  │   └── profile-provider.ts          → 外部画像接入接口             │
 │  └── subscribers/             → 事件订阅者                            │
 │      ├── session-log-subscriber.ts    → 会话日志持久化               │
 │      ├── metrics-subscriber.ts        → 指标采集                     │
@@ -493,7 +493,7 @@ const productConsult = new WorkflowGraph<ConsultState>()
 │  └── adapters/               → 外部实现适配器                        │
 │      ├── llm.ts              → OpenAI 协议大模型调用                 │
 │      ├── redis.ts            → 内存或真实 Redis 适配                 │
-│      ├── mock-profile-provider.ts→ 画像系统 Mock 提供者              │
+│      ├── mock-profile-provider.ts → 画像系统 Mock 提供者             │
 │      ├── product-service.ts  → 外部商品服务适配                      │
 │      └── logger.ts           → 日志格式化工具                        │
 └─────────────────────────────────────────────────────────────────────┘
@@ -534,7 +534,10 @@ const productConsult = new WorkflowGraph<ConsultState>()
 │                                                              │
 │ 9. 记录返回结果并发布事件 'message:assistant'                   │
 │                                                              │
-│ 10. SpecRecommendationEvaluator 记录推荐质量跟踪               │
+│ 10. EventBus.publish('turn:trace', debug)                    │
+│     → 完整决策链路追踪（意图/画像/偏好/仲裁/推荐/记忆）          │
+│                                                              │
+│ 11. SpecRecommendationEvaluator 记录推荐质量跟踪               │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -579,8 +582,8 @@ const productConsult = new WorkflowGraph<ConsultState>()
        │ config.ts  │  │ adapters/    │  │ workflow/        │
        │ observ-    │  │   llm.ts     │  │   intent-router  │
        │  ability/  │  │   redis.ts   │  │   product-consult│
-       │  otel-setup│  │   order-svc  │  │ guardrails/      │
-       │            │  │   product-svc│  │ services/        │
+       │  otel-setup│  │   product-svc│  │ guardrails/      │
+       │            │  │   mock-prof. │  │ services/        │
        │            │  │   logger.ts  │  │   profile-engine/│
        │            │  │              │  │   model-slot/    │
        │            │  │              │  │   context/       │
@@ -737,8 +740,8 @@ const productConsult = new WorkflowGraph<ConsultState>()
 | **阶段 3：推荐解释与仲裁机制** | 三层结构化解释、规则+LLM混合置信度偏好仲裁 | ✅ 已完成 | `explanation-generator`, `confidence-arbitrator` |
 | **阶段 4：长文本与上下文记忆** | 滑动窗口 + 角色切换强制分段压缩 + 摘要主动注入 | ✅ 已完成 | `segment-compressor`, `sliding-window` |
 | **阶段 5：数据飞轮与工程运维** | BadCase 收集/归因/调优、OTel 指标采集、安全护栏Guardrails | ✅ 已完成 | `data-flywheel`, `subscribers`, `guardrails` |
-| **阶段 6：Web Chat 与调试面板** | 浏览器端交互面板、画像与仲裁的中间态 Debug 数据回显 | ✅ 已完成 | `web/app`, `DebugPanel` |
-| **阶段 7：生产级打磨与端到端测试** | 前后端集成测试、核心深水区修复校验、异常边界回归 | 🏃 进行中 | `tests/e2e`, 线上观测 |
+| **阶段 6：Web Chat 与调试面板** | 浏览器端交互面板、用户/商品切换、会话追踪面板 | ✅ 已完成 | `web/app`, `TracePanel` |
+| **阶段 7：生产级打磨** | 会话隔离、角色一致性修复、安全加固、测试补齐 | 🏃 进行中 | `agent.ts`, `tests/` |
 
 ---
 

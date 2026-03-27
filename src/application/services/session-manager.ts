@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { Message } from '../../domain/types.js';
+import type { Message, AgentEvent } from '../../domain/types.js';
 
 export interface SessionData {
   sessionId: string;
@@ -67,12 +67,20 @@ export class SessionManager {
           return null;
         }).filter((m): m is Message => m !== null);
 
+      const seen = new Set<string>();
+      const deduped = messages.filter((m) => {
+        const key = `${m.role}:${m.content}:${m.timestamp ?? ''}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
       const session: SessionData = {
         sessionId,
         userId: '', // Cannot infer from history reliably, but sufficient for chat history reconstruction
-        messages,
-        startedAt: messages[0]?.timestamp ?? new Date().toISOString(),
-        lastActiveAt: messages[messages.length - 1]?.timestamp ?? new Date().toISOString(),
+        messages: deduped,
+        startedAt: deduped[0]?.timestamp ?? new Date().toISOString(),
+        lastActiveAt: deduped[deduped.length - 1]?.timestamp ?? new Date().toISOString(),
       };
       this.activeSessions.set(sessionId, session);
       return session;
@@ -83,6 +91,22 @@ export class SessionManager {
 
   remove(sessionId: string): void {
     this.activeSessions.delete(sessionId);
+  }
+
+  async loadEventLog(sessionId: string): Promise<AgentEvent[]> {
+    try {
+      const filePath = path.join(this.sessionsDir, `${sessionId}.jsonl`);
+      const content = await fs.readFile(filePath, 'utf-8');
+      return content.trim().split('\n')
+        .filter(Boolean)
+        .map((line) => {
+          try { return JSON.parse(line) as AgentEvent; }
+          catch { return null; }
+        })
+        .filter((e): e is AgentEvent => e !== null && !!e.type);
+    } catch {
+      return [];
+    }
   }
 
   listActive(): SessionData[] {

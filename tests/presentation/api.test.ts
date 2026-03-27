@@ -100,4 +100,44 @@ describe('API endpoints', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).uptime).toBeGreaterThan(0);
   });
+
+  it('GET /api/conversation/:sessionId/trace returns turn structure', async () => {
+    // Send a message first to generate events
+    await app.inject({
+      method: 'POST', url: '/api/conversation',
+      payload: { sessionId: 'trace-test', userId: 'u1', message: '你好' },
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/conversation/trace-test/trace' });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.sessionId).toBe('trace-test');
+    expect(body.totalTurns).toBeGreaterThanOrEqual(0);
+    expect(Array.isArray(body.turns)).toBe(true);
+  });
+
+  it('POST /api/conversation sanitizes PII in output', async () => {
+    const mockChat = vi.fn().mockResolvedValue('您的手机号是13812345678');
+    const piiModelSlotManager = new ModelSlotManager(eventBus, () => ({ chat: mockChat }));
+    piiModelSlotManager.registerSlot('conversation', 'conversation',
+      { name: 'mock', endpoint: '', modelId: 'mock', maxTokens: 100, temperature: 0.7, timeoutMs: 5000 },
+      { batchSize: 1, enableFallback: false, cacheTTL: 0, maxRetries: 0, retryDelayMs: 0 },
+    );
+    const piiAgent = new Agent({
+      eventBus, profileStore, modelSlotManager: piiModelSlotManager,
+      intentRouter: new IntentRouter(),
+      coldStartManager: new ColdStartManager(),
+    });
+    const piiApp = buildServer(piiAgent, profileStore, profileProvider, config);
+
+    const res = await piiApp.inject({
+      method: 'POST', url: '/api/conversation',
+      payload: { sessionId: 'pii-test', userId: 'u1', message: '你好' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.reply).not.toContain('13812345678');
+    expect(body.outputSanitized).toBe(true);
+    await piiApp.close();
+  });
 });

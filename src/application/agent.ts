@@ -32,12 +32,20 @@ export interface AgentDeps {
 export class Agent {
   private deps: AgentDeps;
   private windowSize: number;
-  private compressor: SegmentCompressor;
+  private compressors = new Map<string, SegmentCompressor>();
 
   constructor(deps: AgentDeps) {
     this.deps = deps;
     this.windowSize = deps.slidingWindowSize ?? 10;
-    this.compressor = deps.segmentCompressor ?? new SegmentCompressor({ llmClient: deps.llmClient });
+  }
+
+  private getCompressor(sessionId: string): SegmentCompressor {
+    let c = this.compressors.get(sessionId);
+    if (!c) {
+      c = this.deps.segmentCompressor ?? new SegmentCompressor({ llmClient: this.deps.llmClient });
+      this.compressors.set(sessionId, c);
+    }
+    return c;
   }
 
   async handleMessage(
@@ -48,6 +56,7 @@ export class Agent {
     profile: UserProfileEntity,
   ): Promise<{ reply: string; intent: WorkflowType; recommendation: SpecRecommendation | null; debug: Record<string, unknown> }> {
     const { eventBus, modelSlotManager, intentRouter, coldStartManager } = this.deps;
+    const compressor = this.getCompressor(sessionId);
 
     const userMsg: Message = { role: 'user', content: userText, timestamp: new Date().toISOString() };
     conversationHistory.push(userMsg);
@@ -64,7 +73,10 @@ export class Agent {
       activeRole = prefSignal.value.targetRole as GenderRole;
     }
 
-    if (prefSignal.type === 'profile_correction') {
+    const existingConfidence = profile.meta.totalOrders >= 5 ? 0.9 : profile.meta.totalOrders >= 1 ? 0.6 : 0.1;
+    const arbitrationResult = arbitrate(existingConfidence, prefSignal);
+
+    if (prefSignal.type === 'profile_correction' && arbitrationResult.decision !== 'ignore') {
       const corrections = prefSignal.value;
       const role = activeRole ?? profile.spec.defaultRole;
       const delta: Record<string, unknown> = { role };
@@ -73,10 +85,10 @@ export class Agent {
       profile.applyDelta({ dimensionId: 'specPreference', delta, source: 'conversation', timestamp: new Date().toISOString() });
     }
 
-    const coldAction = coldStartManager.getAction(profile);
-    let coldStartHint = '';
+    const coldAction = coldStartManager.getAction(profile, userId);
+    let coldStartInstruction = '';
     if (coldAction.type === 'ask_preference') {
-      coldStartHint = `\n\n另外，${coldAction.question}`;
+      coldStartInstruction = `\n重要：用户画像不足，请在回复中自然地融入以下询问（不要生硬追加）：${coldAction.question}`;
     }
 
     const overflowCount = conversationHistory.length - this.windowSize;
@@ -85,7 +97,7 @@ export class Agent {
       const newOverflow = overflowMessages.slice(-(overflowCount));
       const prevLen = conversationHistory.length - newOverflow.length - this.windowSize;
       if (newOverflow.length > 0 && prevLen >= 0) {
-        await this.compressor.addOverflow(
+        await compressor.addOverflow(
           newOverflow,
           intentResult.intent,
           prefSignal.type === 'role_switch',
@@ -93,7 +105,7 @@ export class Agent {
       }
     }
 
-    const systemPrompt = this.buildSystemPrompt(profile, intentResult.intent);
+    const systemPrompt = this.buildSystemPrompt(profile, intentResult.intent, activeRole, compressor) + coldStartInstruction;
 
     const window = conversationHistory.slice(-this.windowSize);
     const messages: Message[] = [
@@ -112,9 +124,7 @@ export class Agent {
       reply = '抱歉，系统暂时无法处理您的请求，请稍后再试。';
     }
 
-    if (coldStartHint) {
-      reply += coldStartHint;
-    }
+    // coldStartInstruction is now injected into System Prompt, not appended to reply
 
     let recommendation: SpecRecommendation | null = null;
     let matchResultDetail: any = null;
@@ -161,29 +171,48 @@ export class Agent {
     conversationHistory.push(assistantMsg);
     eventBus.publish(createEvent('message:assistant', { content: reply }, sessionId));
 
-    const compressedSegments = this.compressor.getSegments();
+    const compressedSegments = compressor.getSegments();
     const debug: Record<string, unknown> = {
       intent: intentResult.intent,
       latencyMs: Date.now() - startTime,
       profile: { completeness: profile.getCompleteness(), coldStartStage: profile.getColdStartStage(), summary: profile.summarizeForPrompt() },
       preferenceSignal: prefSignal,
-      arbitration: activeRole ? { activeRole } : null,
+      arbitration: { activeRole: activeRole ?? null, ...arbitrationResult },
       recommendation,
       memory: compressedSegments.length > 0 ? { segments: compressedSegments, totalSegments: compressedSegments.length } : null,
     };
 
+    eventBus.publish(createEvent('turn:trace', {
+      userMessage: userText,
+      assistantMessage: reply,
+      ...debug,
+    }, sessionId));
+
     return { reply, intent: intentResult.intent, recommendation, debug };
   }
 
-  private buildSystemPrompt(profile: UserProfileEntity, workflow: WorkflowType): string {
+  private buildSystemPrompt(profile: UserProfileEntity, workflow: WorkflowType, activeRole?: GenderRole, compressor?: SegmentCompressor): string {
     const completeness = profile.getCompleteness();
-    const profileSection = completeness >= 0.7
-      ? `用户画像：${profile.summarizeForPrompt()}`
-      : completeness >= 0.3
-        ? `用户画像（积累中）：${profile.summarizeForPrompt()}`
-        : '暂无用户画像，请在对话中主动询问用户的身高、体重、常穿尺码等信息。';
 
-    const historySection = this.compressor.formatForPrompt();
+    let profileSummary: string;
+    if (activeRole && activeRole !== profile.spec.defaultRole) {
+      const gp = profile.getGenderProfile(activeRole);
+      profileSummary = gp
+        ? `当前为他人选购（${activeRole === 'male' ? '男性' : activeRole === 'child' ? '儿童' : '女性'}），画像：${JSON.stringify(gp)}`
+        : `当前为他人选购（${activeRole === 'male' ? '男性' : activeRole === 'child' ? '儿童' : '女性'}），暂无该角色的身材数据，请询问对方的身高、体重等信息。`;
+    } else {
+      profileSummary = completeness >= 0.7
+        ? profile.summarizeForPrompt()
+        : completeness >= 0.3
+          ? profile.summarizeForPrompt()
+          : '';
+    }
+
+    const profileSection = profileSummary
+      ? (completeness >= 0.7 ? `用户画像：${profileSummary}` : `用户画像（积累中）：${profileSummary}`)
+      : '暂无用户画像，请在对话中主动询问用户的身高、体重、常穿尺码等信息。';
+
+    const historySection = compressor?.formatForPrompt() ?? '';
 
     const workflowInstructions: Record<WorkflowType, string> = {
       product_consult: '帮助用户选购商品，提供规格推荐和比价建议。',

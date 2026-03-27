@@ -54,14 +54,17 @@ export function registerConversationRoutes(
     const outputCheck = outputGuard.checkAndSanitize(result.reply);
     const finalReply = outputCheck.sanitizedContent ?? result.reply;
 
-    return reply.send({
+    const response: Record<string, unknown> = {
       sessionId,
       reply: finalReply,
       intent: result.intent,
       recommendation: result.recommendation,
       outputSanitized: !!outputCheck.sanitizedContent,
-      debug: result.debug,
-    });
+    };
+    if (process.env.NODE_ENV !== 'production') {
+      response.debug = result.debug;
+    }
+    return reply.send(response);
   });
 
   app.get<{
@@ -76,5 +79,56 @@ export function registerConversationRoutes(
       sessionId,
       messages: session?.messages ?? [],
     });
+  });
+
+  app.get<{
+    Params: { sessionId: string };
+  }>('/api/conversation/:sessionId/trace', async (request, reply) => {
+    const { sessionId } = request.params as { sessionId: string };
+    const events = await sessionManager.loadEventLog(sessionId);
+
+    const turns: Array<{
+      turnIndex: number;
+      userMessage: string;
+      assistantMessage: string;
+      timestamp: string;
+      trace: Record<string, unknown> | null;
+      events: Array<{ type: string; timestamp: string; payload: Record<string, unknown> }>;
+    }> = [];
+
+    let currentTurn: typeof turns[number] | null = null;
+    let turnIndex = 0;
+
+    for (const event of events) {
+      if (event.type === 'message:user') {
+        currentTurn = {
+          turnIndex: turnIndex++,
+          userMessage: String(event.payload?.content ?? ''),
+          assistantMessage: '',
+          timestamp: event.timestamp,
+          trace: null,
+          events: [],
+        };
+        turns.push(currentTurn);
+      }
+
+      if (currentTurn) {
+        currentTurn.events.push({
+          type: event.type,
+          timestamp: event.timestamp,
+          payload: event.payload,
+        });
+      }
+
+      if (event.type === 'message:assistant' && currentTurn) {
+        currentTurn.assistantMessage = String(event.payload?.content ?? '');
+      }
+
+      if (event.type === 'turn:trace' && currentTurn) {
+        currentTurn.trace = event.payload;
+      }
+    }
+
+    return reply.send({ sessionId, totalTurns: turns.length, turns });
   });
 }

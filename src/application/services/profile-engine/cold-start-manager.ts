@@ -18,42 +18,51 @@ const PROBING_QUESTIONS: string[] = [
  * Returns an action that the agent loop should take based on profile completeness.
  */
 export class ColdStartManager {
-  private askedQuestions = new Set<string>();
+  private askedByUser = new Map<string, Set<string>>();
 
-  getAction(profile: UserProfileEntity): ColdStartAction {
+  private getAsked(userId: string): Set<string> {
+    let set = this.askedByUser.get(userId);
+    if (!set) { set = new Set(); this.askedByUser.set(userId, set); }
+    return set;
+  }
+
+  getAction(profile: UserProfileEntity, userId?: string): ColdStartAction {
+    const key = userId ?? profile.userId;
     const stage = profile.getColdStartStage();
 
     switch (stage) {
       case 'cold':
-        return this.getColdAction();
+        return this.getColdAction(key);
       case 'warm':
-        return this.getWarmAction(profile);
+        return this.getWarmAction(profile, key);
       case 'hot':
         return { type: 'normal' };
     }
   }
 
-  private getColdAction(): ColdStartAction {
-    const unasked = PROBING_QUESTIONS.filter((q) => !this.askedQuestions.has(q));
+  private getColdAction(userId: string): ColdStartAction {
+    const asked = this.getAsked(userId);
+    const unasked = PROBING_QUESTIONS.filter((q) => !asked.has(q));
     if (unasked.length > 0) {
       const question = unasked[0];
-      this.askedQuestions.add(question);
+      asked.add(question);
       return { type: 'ask_preference', question };
     }
     return { type: 'use_popular', reason: '用户画像不足，推荐热门商品' };
   }
 
-  private getWarmAction(profile: UserProfileEntity): ColdStartAction {
+  private getWarmAction(profile: UserProfileEntity, userId: string): ColdStartAction {
     const gp = profile.getGenderProfile();
-    if (!gp) return this.getColdAction();
+    if (!gp) return this.getColdAction(userId);
 
     const missing: string[] = [];
     if (!gp.height) missing.push('身高');
     if (!gp.weight) missing.push('体重');
     if (!gp.size) missing.push('尺码');
 
-    if (missing.length > 0 && !this.askedQuestions.has('warm_probe')) {
-      this.askedQuestions.add('warm_probe');
+    const asked = this.getAsked(userId);
+    if (missing.length > 0 && !asked.has('warm_probe')) {
+      asked.add('warm_probe');
       return {
         type: 'ask_preference',
         question: `为了给您更精准的推荐，能告诉我您的${missing.join('和')}吗？`,
@@ -67,7 +76,11 @@ export class ColdStartManager {
     return profile.getColdStartStage() === 'cold';
   }
 
-  reset(): void {
-    this.askedQuestions.clear();
+  reset(userId?: string): void {
+    if (userId) {
+      this.askedByUser.delete(userId);
+    } else {
+      this.askedByUser.clear();
+    }
   }
 }

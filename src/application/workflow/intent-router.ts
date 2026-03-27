@@ -4,7 +4,7 @@ const KEYWORD_RULES: Array<{ keywords: string[]; intent: WorkflowType }> = [
   { keywords: ['退款', '退货', '换货', '退钱', '售后'], intent: 'after_sale' },
   { keywords: ['快递', '物流', '发货', '到哪了', '配送'], intent: 'logistics' },
   { keywords: ['投诉', '差评', '举报', '不满意', '太差'], intent: 'complaint' },
-  { keywords: ['推荐', '尺码', '规格', '买', '看看', '多少钱', '有没有', '商品', '款'], intent: 'product_consult' },
+  { keywords: ['推荐', '尺码', '规格', '买', '看看', '多少钱', '有没有', '商品', '款', '选码', '选个码', '什么码', '哪个码', '适合'], intent: 'product_consult' },
 ];
 
 /**

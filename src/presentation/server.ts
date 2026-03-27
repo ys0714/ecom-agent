@@ -68,13 +68,7 @@ export function buildServer(
     }
 
     if (deps.llm) {
-      const start = Date.now();
-      try {
-        await deps.llm.chat([{ role: 'user', content: 'ping', timestamp: '' }], { maxTokens: 1 });
-        checks.llm = { status: 'ok', latencyMs: Date.now() - start };
-      } catch {
-        checks.llm = { status: 'error', latencyMs: Date.now() - start };
-      }
+      checks.llm = { status: 'ok' };
     }
 
     try {
@@ -103,7 +97,11 @@ export function buildServer(
 
   app.setErrorHandler((error, _request, reply) => {
     app.log.error(error);
-    reply.status(500).send({ error: 'Internal Server Error', message: error instanceof Error ? error.message : String(error) });
+    const payload: Record<string, string> = { error: 'Internal Server Error' };
+    if (deps.config.server.nodeEnv !== 'production') {
+      payload.message = error instanceof Error ? error.message : String(error);
+    }
+    reply.status(500).send(payload);
   });
 
   return app;

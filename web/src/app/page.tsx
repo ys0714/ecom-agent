@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import ChatPanel, { type DebugInfo } from '../components/ChatPanel';
-import DebugPanel from '../components/DebugPanel';
+import TracePanel from '../components/TracePanel';
 import ProfilePanel from '../components/ProfilePanel';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:3000';
@@ -30,6 +30,7 @@ export default function Home() {
   const [showDebug, setShowDebug] = useState(true);
   const [userId, setUserId] = useState(MOCK_USERS[0].id);
   const [productId, setProductId] = useState(MOCK_PRODUCTS[0].id);
+  const [traceRefreshKey, setTraceRefreshKey] = useState(0);
   
   // Use a predictable but unique session ID per user and product selection to keep contexts isolated
   const [sessionId, setSessionId] = useState(() => `web-${MOCK_USERS[0].id}-${MOCK_PRODUCTS[0].id}`);
@@ -38,12 +39,19 @@ export default function Home() {
     setUserId(newUserId);
     setSessionId(`web-${newUserId}-${productId}`);
     setDebug(null);
+    setTraceRefreshKey(k => k + 1);
   };
 
   const handleProductChange = (newProductId: string) => {
     setProductId(newProductId);
     setSessionId(`web-${userId}-${newProductId}`);
     setDebug(null);
+    setTraceRefreshKey(k => k + 1);
+  };
+
+  const handleDebugUpdate = (d: DebugInfo) => {
+    setDebug(d);
+    setTraceRefreshKey(k => k + 1);
   };
 
   return (
@@ -104,14 +112,14 @@ export default function Home() {
           userId={userId}
           sessionId={sessionId}
           productId={productId}
-          onDebugUpdate={setDebug}
+          onDebugUpdate={handleDebugUpdate}
         />
       </div>
 
-      {/* Right: Debug */}
+      {/* Right: Trace Timeline */}
       {showDebug && (
         <div className="w-96 border-l border-gray-700 overflow-hidden bg-gray-900">
-          <DebugPanel debug={debug} />
+          <TracePanel apiBase={API_BASE} sessionId={sessionId} refreshKey={traceRefreshKey} />
         </div>
       )}
     </div>

@@ -9,6 +9,7 @@ export class SessionLogSubscriber implements EventSubscriber {
   readonly subscribedEvents: AgentEventType[] = [
     'agent:start', 'agent:stop',
     'message:user', 'message:assistant',
+    'turn:trace',
     'tool:call', 'tool:result',
     'profile:updated',
     'model:inference', 'model:fallback',
@@ -22,7 +23,11 @@ export class SessionLogSubscriber implements EventSubscriber {
 
   handle(event: AgentEvent): void {
     if (!event.sessionId) return;
-    this.writeQueue = this.writeQueue.then(() => this.appendLog(event)).catch(() => {});
+    this.writeQueue = this.writeQueue
+      .then(() => this.appendLog(event))
+      .catch((err) => {
+        console.error(`[SessionLogSubscriber] Failed to write event ${event.type} for session ${event.sessionId}:`, err);
+      });
   }
 
   private async appendLog(event: AgentEvent): Promise<void> {
