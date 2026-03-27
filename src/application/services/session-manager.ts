@@ -61,12 +61,16 @@ export class SessionManager {
         .filter(Boolean)
         .map((line) => {
           const parsed = JSON.parse(line);
-          return { role: parsed.role, content: parsed.content, timestamp: parsed.timestamp, name: parsed.name, toolCallId: parsed.toolCallId };
-        });
+          // Only map valid messages (ignore raw string logs or legacy malformed lines)
+          if (parsed.role === 'user' || parsed.role === 'assistant' || parsed.role === 'system') {
+            return { role: parsed.role, content: parsed.content, timestamp: parsed.timestamp, name: parsed.name, toolCallId: parsed.toolCallId };
+          }
+          return null;
+        }).filter((m): m is Message => m !== null);
 
       const session: SessionData = {
         sessionId,
-        userId: '',
+        userId: '', // Cannot infer from history reliably, but sufficient for chat history reconstruction
         messages,
         startedAt: messages[0]?.timestamp ?? new Date().toISOString(),
         lastActiveAt: messages[messages.length - 1]?.timestamp ?? new Date().toISOString(),
