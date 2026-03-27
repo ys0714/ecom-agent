@@ -13,6 +13,7 @@ import { SegmentCompressor } from './services/context/segment-compressor.js';
 import type { ProfileStore } from './services/profile-store.js';
 import type { ProductService } from '../infra/adapters/product-service.js';
 import type { LLMClient } from '../infra/adapters/llm.js';
+import type { VectorStore } from '../infra/adapters/vector-store.js';
 
 const GUARDRAIL_INSTRUCTIONS = '你不能做出退款、赔偿等未经授权的承诺。不要暴露用户的手机号、地址等隐私信息。';
 
@@ -27,6 +28,7 @@ export interface AgentDeps {
   evaluator?: SpecRecommendationEvaluator;
   slidingWindowSize?: number;
   segmentCompressor?: SegmentCompressor;
+  vectorStore?: VectorStore;
 }
 
 export class Agent {
@@ -105,7 +107,8 @@ export class Agent {
       }
     }
 
-    const systemPrompt = this.buildSystemPrompt(profile, intentResult.intent, activeRole, compressor) + coldStartInstruction;
+    const fewShotExamples = await this.getFewShotExamples(userText);
+    const systemPrompt = this.buildSystemPrompt(profile, intentResult.intent, activeRole, compressor) + coldStartInstruction + fewShotExamples;
 
     const window = conversationHistory.slice(-this.windowSize);
     const messages: Message[] = [
@@ -180,6 +183,7 @@ export class Agent {
       arbitration: { activeRole: activeRole ?? null, ...arbitrationResult },
       recommendation,
       memory: compressedSegments.length > 0 ? { segments: compressedSegments, totalSegments: compressedSegments.length } : null,
+      messagesForDistillation: messages, // Exported for data flywheel distillation
     };
 
     eventBus.publish(createEvent('turn:trace', {
@@ -189,6 +193,20 @@ export class Agent {
     }, sessionId));
 
     return { reply, intent: intentResult.intent, recommendation, debug };
+  }
+
+  private async getFewShotExamples(userText: string): Promise<string> {
+    if (!this.deps.vectorStore) return '';
+    try {
+      const results = await this.deps.vectorStore.search(userText, 2);
+      if (results.length === 0) return '';
+      
+      const examples = results.map((r, i) => `[示例 ${i + 1}]\n${r.text}`).join('\n\n');
+      return `\n\n【参考修正案例】\n以下是历史上类似场景的最佳回复策略，请在回复时参考：\n${examples}`;
+    } catch (err) {
+      // Ignore errors if VectorStore is not initialized
+      return '';
+    }
   }
 
   private buildSystemPrompt(profile: UserProfileEntity, workflow: WorkflowType, activeRole?: GenderRole, compressor?: SegmentCompressor): string {

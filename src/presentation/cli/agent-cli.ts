@@ -74,6 +74,7 @@ async function main() {
     coldStartManager: new ColdStartManager(),
     productService,
     slidingWindowSize: config.business.slidingWindowSize,
+    vectorStore,
   });
 
   const messages: Message[] = [];

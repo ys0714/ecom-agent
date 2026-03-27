@@ -18,6 +18,7 @@ import { BadCaseAnalyzer } from './application/services/data-flywheel/badcase-an
 import { TuningAdvisor } from './application/services/data-flywheel/tuning-advisor.js';
 import { SpecRecommendationEvaluator } from './application/services/data-flywheel/evaluator.js';
 import { SegmentCompressor } from './application/services/context/segment-compressor.js';
+import { DataDistillationSubscriber } from './application/subscribers/data-distillation-subscriber.js';
 import { buildServer } from './presentation/server.js';
 import { MockProfileProvider } from './infra/adapters/mock-profile-provider.js';
 import { vectorStore } from './infra/adapters/vector-store.js';
@@ -73,9 +74,11 @@ const agent = new Agent({
   evaluator,
   segmentCompressor,
   slidingWindowSize: config.business.slidingWindowSize,
+  vectorStore,
 });
 
 eventBus.register(new SessionLogSubscriber(config.paths.sessions));
+eventBus.register(new DataDistillationSubscriber(config.paths.dataDir));
 eventBus.register(new MetricsSubscriber());
 eventBus.register(new AlertSubscriber());
 eventBus.register(configWatch);
@@ -88,6 +91,7 @@ const server = buildServer({
   config,
   configWatch,
   autoPrompt,
+  eventBus,
 });
 
   server.listen({ port: config.server.port, host: '0.0.0.0' }).then((address: string) => {

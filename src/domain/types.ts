@@ -278,6 +278,7 @@ export type AgentEventType =
   | 'profile:updated'
   | 'model:inference' | 'model:fallback' | 'model:health_check'
   | 'session:summary'
+  | 'user:feedback'
   | 'badcase:detected' | 'badcase:prompt_optimized'
   | 'guardrail:blocked'
   | 'system:error';

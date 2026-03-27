@@ -14,6 +14,7 @@ import { registerConversationRoutes } from './api/conversation-handler.js';
 import { registerProfileRoutes } from './api/profile-handler.js';
 import { registerAdminRoutes } from './api/admin-handler.js';
 import { registerMetricsRoutes } from './api/metrics-handler.js';
+import { InMemoryEventBus } from '../domain/event-bus.js';
 
 export interface ServerDeps {
   agent: Agent;
@@ -26,26 +27,29 @@ export interface ServerDeps {
   autoPrompt?: AutoPromptSubscriber;
   redis?: RedisClient;
   llm?: LLMClient;
+  eventBus?: import('../domain/event-bus.js').InMemoryEventBus;
 }
 
 export function buildServer(deps: ServerDeps): ReturnType<typeof Fastify>;
-export function buildServer(agent: Agent, profileStore: ProfileStore, profileProvider: ProfileProvider, config: AppConfig, sessionManager?: SessionManager): ReturnType<typeof Fastify>;
+export function buildServer(agent: Agent, profileStore: ProfileStore, profileProvider: ProfileProvider, config: AppConfig, sessionManager?: SessionManager, eventBus?: import('../domain/event-bus.js').InMemoryEventBus): ReturnType<typeof Fastify>;
 export function buildServer(
   agentOrDeps: Agent | ServerDeps,
   profileStore?: ProfileStore,
   profileProvider?: ProfileProvider,
   config?: AppConfig,
   sessionManager?: SessionManager,
+  eventBus?: import('../domain/event-bus.js').InMemoryEventBus,
 ) {
   let deps: ServerDeps;
   if ('agent' in agentOrDeps && 'config' in agentOrDeps) {
     deps = agentOrDeps as ServerDeps;
   } else {
-    deps = { agent: agentOrDeps as Agent, profileStore: profileStore!, profileProvider: profileProvider!, config: config!, sessionManager };
+    deps = { agent: agentOrDeps as Agent, profileStore: profileStore!, profileProvider: profileProvider!, config: config!, sessionManager, eventBus };
   }
 
   const app = Fastify({ logger: deps.config.server.nodeEnv !== 'test' });
   const sessMgr = deps.sessionManager ?? new SessionManager(deps.config.paths.sessions);
+  const bus = deps.eventBus ?? new InMemoryEventBus();
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('Access-Control-Allow-Origin', '*');
@@ -90,7 +94,7 @@ export function buildServer(
     };
   });
 
-  registerConversationRoutes(app, deps.agent, deps.profileStore, deps.profileProvider, sessMgr);
+  registerConversationRoutes(app, deps.agent, deps.profileStore, deps.profileProvider, sessMgr, bus);
   registerProfileRoutes(app, deps.profileStore, deps.profileProvider);
   registerAdminRoutes(app, deps.configWatch, deps.autoPrompt);
   registerMetricsRoutes(app, deps.metricsSubscriber);

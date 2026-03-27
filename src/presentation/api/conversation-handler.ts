@@ -7,6 +7,8 @@ import { UserProfileEntity } from '../../domain/entities/user-profile.entity.js'
 import { InputGuard } from '../../application/guardrails/input-guard.js';
 import { OutputGuard } from '../../application/guardrails/output-guard.js';
 
+import { InMemoryEventBus } from '../../domain/event-bus.js';
+
 const inputGuard = new InputGuard();
 const outputGuard = new OutputGuard();
 
@@ -16,6 +18,7 @@ export function registerConversationRoutes(
   profileStore: ProfileStore,
   profileProvider: ProfileProvider,
   sessionManager: SessionManager,
+  eventBus: InMemoryEventBus
 ) {
   app.post<{
     Body: { sessionId: string; userId: string; message: string };
@@ -130,5 +133,26 @@ export function registerConversationRoutes(
     }
 
     return reply.send({ sessionId, totalTurns: turns.length, turns });
+  });
+
+  app.post<{
+    Params: { sessionId: string };
+    Body: { type: 'like' | 'dislike'; reason?: string; userId: string };
+  }>('/api/conversation/:sessionId/feedback', async (request, reply) => {
+    const { sessionId } = request.params;
+    const { type, reason, userId } = request.body;
+
+    if (!['like', 'dislike'].includes(type)) {
+      return reply.status(400).send({ error: 'invalid feedback type' });
+    }
+
+    eventBus.publish({
+      type: 'user:feedback',
+      timestamp: new Date().toISOString(),
+      sessionId,
+      payload: { userId, feedbackType: type, reason }
+    });
+
+    return reply.send({ success: true });
   });
 }
