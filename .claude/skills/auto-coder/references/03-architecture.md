@@ -31,7 +31,6 @@
 │  │   └── workflow-graph.ts        → 状态机节点图实现                   │
 │  ├── services/                                                       │
 │  │   ├── profile-engine/                                             │
-│  │   │   ├── order-analyzer.ts        → 订单记录解析                 │
 │  │   │   ├── spec-inference.ts        → 规格匹配与推理计算            │
 │  │   │   ├── preference-detector.ts   → 用户偏好检测（规则+LLM）      │
 │  │   │   ├── explanation-generator.ts → 推荐解释生成                 │
@@ -52,8 +51,9 @@
 │  │   │   └── prompt-optimizer.ts      → Prompt 优化建议              │
 │  │   ├── context/                                                    │
 │  │   │   └── segment-compressor.ts    → 窗口外历史对话压缩记忆        │
-│  │   ├── session-manager.ts           → 会话持久化                   │
-│  │   └── profile-store.ts             → 画像持久化                   │
+│  │   ├── session-manager.ts           → 会话管理 + Event Sourcing    │
+│  │   ├── profile-store.ts             → 画像持久化                   │
+│  │   └── profile-provider.ts          → 外部画像接入接口             │
 │  └── subscribers/             → 事件订阅者                            │
 │      ├── session-log-subscriber.ts    → 会话日志持久化               │
 │      ├── metrics-subscriber.ts        → 指标采集                     │
@@ -76,6 +76,7 @@
 │  └── adapters/               → 外部实现适配器                        │
 │      ├── llm.ts              → OpenAI 协议大模型调用                 │
 │      ├── redis.ts            → 内存或真实 Redis 适配                 │
+│      ├── mock-profile-provider.ts → 画像系统 Mock 提供者             │
 │      ├── product-service.ts  → 外部商品服务适配                      │
 │      └── logger.ts           → 日志格式化工具                        │
 └─────────────────────────────────────────────────────────────────────┘
@@ -116,7 +117,10 @@
 │                                                              │
 │ 9. 记录返回结果并发布事件 'message:assistant'                   │
 │                                                              │
-│ 10. SpecRecommendationEvaluator 记录推荐质量跟踪               │
+│ 10. EventBus.publish('turn:trace', debug)                    │
+│     → 完整决策链路追踪（意图/画像/偏好/仲裁/推荐/记忆）          │
+│                                                              │
+│ 11. SpecRecommendationEvaluator 记录推荐质量跟踪               │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -161,8 +165,8 @@
        │ config.ts  │  │ adapters/    │  │ workflow/        │
        │ observ-    │  │   llm.ts     │  │   intent-router  │
        │  ability/  │  │   redis.ts   │  │   product-consult│
-       │  otel-setup│  │   order-svc  │  │ guardrails/      │
-       │            │  │   product-svc│  │ services/        │
+       │  otel-setup│  │   product-svc│  │ guardrails/      │
+       │            │  │   mock-prof. │  │ services/        │
        │            │  │   logger.ts  │  │   profile-engine/│
        │            │  │              │  │   model-slot/    │
        │            │  │              │  │   context/       │

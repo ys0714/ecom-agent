@@ -13,8 +13,12 @@ import { ColdStartManager } from '../../application/services/profile-engine/cold
 import { UserProfileEntity } from '../../domain/entities/user-profile.entity.js';
 import { Agent } from '../../application/agent.js';
 import type { Message } from '../../domain/types.js';
+import { vectorStore } from '../../infra/adapters/vector-store.js';
 
 async function main() {
+  await vectorStore.initialize();
+  console.log(`[ecom-agent] Vector DB: ChromaDB @ ${config.vectorStore.url}`);
+
   const eventBus = new InMemoryEventBus();
   const redis = new InMemoryRedisClient();
   const profileStore = new ProfileStore(redis, config.paths.profiles);

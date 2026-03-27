@@ -20,8 +20,12 @@ import { SpecRecommendationEvaluator } from './application/services/data-flywhee
 import { SegmentCompressor } from './application/services/context/segment-compressor.js';
 import { buildServer } from './presentation/server.js';
 import { MockProfileProvider } from './infra/adapters/mock-profile-provider.js';
+import { vectorStore } from './infra/adapters/vector-store.js';
 
-const eventBus = new InMemoryEventBus();
+async function bootstrap() {
+  await vectorStore.initialize();
+
+  const eventBus = new InMemoryEventBus();
 const redis = new InMemoryRedisClient();
 const profileStore = new ProfileStore(redis, config.paths.profiles);
 const profileProvider = new MockProfileProvider();
@@ -86,11 +90,18 @@ const server = buildServer({
   autoPrompt,
 });
 
-server.listen({ port: config.server.port, host: '0.0.0.0' }).then((address: string) => {
-  console.log(`[ecom-agent] server listening on ${address}`);
-  console.log(`[ecom-agent] LLM: ${config.llm.modelId} @ ${config.llm.baseUrl}`);
-  console.log(`[ecom-agent] data dir: ${config.paths.dataDir}`);
-}).catch((err: unknown) => {
-  console.error('[ecom-agent] failed to start:', err);
+  server.listen({ port: config.server.port, host: '0.0.0.0' }).then((address: string) => {
+    console.log(`[ecom-agent] server listening on ${address}`);
+    console.log(`[ecom-agent] LLM: ${config.llm.modelId} @ ${config.llm.baseUrl}`);
+    console.log(`[ecom-agent] data dir: ${config.paths.dataDir}`);
+    console.log(`[ecom-agent] Vector DB: ChromaDB @ ${config.vectorStore.url}`);
+  }).catch((err: unknown) => {
+    console.error('[ecom-agent] failed to start:', err);
+    process.exit(1);
+  });
+}
+
+bootstrap().catch((err: unknown) => {
+  console.error('Fatal bootstrap error', err);
   process.exit(1);
 });

@@ -49,6 +49,11 @@ export const config = {
     experiments: path.join(DATA_DIR, 'experiments'),
   },
 
+  vectorStore: {
+    url: env('CHROMA_URL', 'http://localhost:8000'),
+    collectionName: env('CHROMA_COLLECTION', 'badcases_fewshot'),
+  },
+
   server: {
     port: envInt('PORT', 3000),
     nodeEnv: env('NODE_ENV', 'development'),

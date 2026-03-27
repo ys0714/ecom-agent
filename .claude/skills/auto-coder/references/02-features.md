@@ -275,6 +275,21 @@ interface BadCaseTrace {
 - **手动触发**：`POST /admin/flywheel/trigger`
 - **冷启动过滤**：`coldStartStage === 'cold'` 的用户产生的 BadCase 不进入飞轮
 
+#### 2.5.6 飞轮架构演进与最佳实践 (基于开源社区调研)
+
+> 详细调研见 `references/data-flywheel-best-practices.md`。
+
+基于开源社区与业界（如 NVIDIA Data Flywheel、电商 AIGQ）的最新最佳实践，系统在数据飞轮架构上引入以下核心决策：
+
+1. **动态 Few-shot 飞轮 (Prompt 层)**：
+   - 引入轻量级本地向量存储（如 ChromaDB）管理优质 Case。将线上表现差的 Bad Case 修正后存入向量库，在后续推理时通过 RAG 动态召回作为 System Prompt 的 Few-shot 示例，实现免微调的快速系统修复。
+2. **合成数据冷启动 (Synthetic Data)**：
+   - 针对系统初期缺乏真实交互数据的问题，预先通过脚本或大模型生成一批典型的电商客服对话与 Bad Case，以此转动第一波“动态 Few-shot 飞轮”。
+3. **混合反馈信号采集 (UI + 业务层)**：
+   - 闭环反馈的触发不仅依赖**隐式行为**（如用户修改尺码、发生退单），同时在前端 UI 增加**显式评价**（点赞/踩），两者结合作为系统的强化/惩罚信号。
+4. **标准化数据资产落盘 (模型层储备)**：
+   - 采用标准 JSONL 格式（兼容 OpenAI 格式）落盘所有交互的 Trace 上下文，为未来的模型蒸馏（如微调小尺寸模型替代大模型）夯实数据基建。
+
 ### 2.6 Agent Workflow 路由
 
 电商客服场景涵盖商品咨询、售后、物流、投诉等多种意图。系统引入**声明式图结构**定义 Workflow，参考 LangGraph 的状态机模式：节点是处理函数，边是条件路由，状态是共享数据结构。
