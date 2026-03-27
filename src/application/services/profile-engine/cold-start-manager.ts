@@ -17,12 +17,24 @@ const PROBING_QUESTIONS: string[] = [
  * Manages cold-start behavior for users without sufficient profile data.
  * Returns an action that the agent loop should take based on profile completeness.
  */
+const MAX_USER_CACHE = 500;
+
 export class ColdStartManager {
   private askedByUser = new Map<string, Set<string>>();
 
   private getAsked(userId: string): Set<string> {
     let set = this.askedByUser.get(userId);
-    if (!set) { set = new Set(); this.askedByUser.set(userId, set); }
+    if (set) {
+      this.askedByUser.delete(userId);
+      this.askedByUser.set(userId, set);
+      return set;
+    }
+    set = new Set();
+    this.askedByUser.set(userId, set);
+    if (this.askedByUser.size > MAX_USER_CACHE) {
+      const oldest = this.askedByUser.keys().next().value;
+      if (oldest) this.askedByUser.delete(oldest);
+    }
     return set;
   }
 

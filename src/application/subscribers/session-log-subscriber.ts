@@ -13,6 +13,7 @@ export class SessionLogSubscriber implements EventSubscriber {
     'tool:call', 'tool:result',
     'profile:updated',
     'model:inference', 'model:fallback',
+    'user:feedback',
     'guardrail:blocked',
     'system:error',
   ];

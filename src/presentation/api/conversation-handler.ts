@@ -140,17 +140,20 @@ export function registerConversationRoutes(
     Body: { type: 'like' | 'dislike'; reason?: string; userId: string };
   }>('/api/conversation/:sessionId/feedback', async (request, reply) => {
     const { sessionId } = request.params;
-    const { type, reason, userId } = request.body;
+    const { type, reason, userId } = request.body ?? {};
 
-    if (!['like', 'dislike'].includes(type)) {
-      return reply.status(400).send({ error: 'invalid feedback type' });
+    if (!userId || !sessionId) {
+      return reply.status(400).send({ error: 'sessionId and userId are required' });
+    }
+    if (!type || !['like', 'dislike'].includes(type)) {
+      return reply.status(400).send({ error: 'type must be "like" or "dislike"' });
     }
 
     eventBus.publish({
       type: 'user:feedback',
       timestamp: new Date().toISOString(),
       sessionId,
-      payload: { userId, feedbackType: type, reason }
+      payload: { userId, feedbackType: type, reason: reason ?? null }
     });
 
     return reply.send({ success: true });

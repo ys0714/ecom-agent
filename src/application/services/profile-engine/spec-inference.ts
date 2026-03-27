@@ -111,10 +111,7 @@ export function matchSpecs(
   const scored = product.specs
     .map((spec) => {
       const specRole = audienceToRole(spec.targetAudience);
-      // When overrideRole is set (e.g. "帮我老公买"), only match specs
-      // whose audience aligns with that role, using the override role's profile.
       const role = overrideRole ?? specRole;
-      if (overrideRole && specRole !== overrideRole) return null;
       const genderProfile = profile.getGenderProfile(role);
       if (!genderProfile) return null;
       return scoreSpec(genderProfile, spec, featurePriority);

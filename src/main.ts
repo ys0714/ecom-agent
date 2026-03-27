@@ -24,7 +24,14 @@ import { MockProfileProvider } from './infra/adapters/mock-profile-provider.js';
 import { vectorStore } from './infra/adapters/vector-store.js';
 
 async function bootstrap() {
-  await vectorStore.initialize();
+  let vs: typeof vectorStore | undefined;
+  try {
+    await vectorStore.initialize();
+    vs = vectorStore;
+    console.log(`[ecom-agent] Vector DB ready: ChromaDB @ ${config.vectorStore.url}`);
+  } catch (err) {
+    console.warn(`[ecom-agent] ChromaDB unavailable, few-shot retrieval disabled: ${err instanceof Error ? err.message : err}`);
+  }
 
   const eventBus = new InMemoryEventBus();
 const redis = new InMemoryRedisClient();
@@ -74,7 +81,7 @@ const agent = new Agent({
   evaluator,
   segmentCompressor,
   slidingWindowSize: config.business.slidingWindowSize,
-  vectorStore,
+  vectorStore: vs,
 });
 
 eventBus.register(new SessionLogSubscriber(config.paths.sessions));
@@ -98,7 +105,6 @@ const server = buildServer({
     console.log(`[ecom-agent] server listening on ${address}`);
     console.log(`[ecom-agent] LLM: ${config.llm.modelId} @ ${config.llm.baseUrl}`);
     console.log(`[ecom-agent] data dir: ${config.paths.dataDir}`);
-    console.log(`[ecom-agent] Vector DB: ChromaDB @ ${config.vectorStore.url}`);
   }).catch((err: unknown) => {
     console.error('[ecom-agent] failed to start:', err);
     process.exit(1);

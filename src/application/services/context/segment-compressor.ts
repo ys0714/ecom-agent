@@ -20,13 +20,15 @@ export class SegmentCompressor {
   private pendingMessages: Message[] = [];
   private pendingIntent: WorkflowType = 'general';
   private turnCounter = 0;
-  private segmentSize: number;
+  private _segmentSize: number;
   private llmClient?: LLMClient;
 
   constructor(opts: SegmentCompressorOpts = {}) {
-    this.segmentSize = opts.segmentSize ?? DEFAULT_SEGMENT_SIZE;
+    this._segmentSize = opts.segmentSize ?? DEFAULT_SEGMENT_SIZE;
     this.llmClient = opts.llmClient;
   }
+
+  get segmentSize(): number { return this._segmentSize; }
 
   /**
    * Feed overflow messages from the sliding window.
@@ -51,8 +53,8 @@ export class SegmentCompressor {
       created = true;
     }
 
-    while (this.pendingMessages.length >= this.segmentSize) {
-      const batch = this.pendingMessages.splice(0, this.segmentSize);
+    while (this.pendingMessages.length >= this._segmentSize) {
+      const batch = this.pendingMessages.splice(0, this._segmentSize);
       const startTurn = this.turnCounter - this.pendingMessages.length - batch.length;
       await this.flushBatch(batch, startTurn);
       created = true;

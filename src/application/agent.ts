@@ -15,7 +15,7 @@ import type { ProductService } from '../infra/adapters/product-service.js';
 import type { LLMClient } from '../infra/adapters/llm.js';
 import type { VectorStore } from '../infra/adapters/vector-store.js';
 
-const GUARDRAIL_INSTRUCTIONS = '你不能做出退款、赔偿等未经授权的承诺。不要暴露用户的手机号、地址等隐私信息。';
+const GUARDRAIL_INSTRUCTIONS = '你不能做出退款、赔偿等未经授权的承诺。不要暴露用户的手机号、地址等隐私信息。不要自行生成【推荐】【规格推荐】等格式的尺码推荐文案，尺码推荐由系统自动附加。';
 
 export interface AgentDeps {
   eventBus: InMemoryEventBus;
@@ -31,6 +31,8 @@ export interface AgentDeps {
   vectorStore?: VectorStore;
 }
 
+const MAX_COMPRESSOR_CACHE = 200;
+
 export class Agent {
   private deps: AgentDeps;
   private windowSize: number;
@@ -43,9 +45,19 @@ export class Agent {
 
   private getCompressor(sessionId: string): SegmentCompressor {
     let c = this.compressors.get(sessionId);
-    if (!c) {
-      c = this.deps.segmentCompressor ?? new SegmentCompressor({ llmClient: this.deps.llmClient });
+    if (c) {
+      this.compressors.delete(sessionId);
       this.compressors.set(sessionId, c);
+      return c;
+    }
+    c = new SegmentCompressor({
+      llmClient: this.deps.llmClient,
+      segmentSize: this.deps.segmentCompressor?.segmentSize,
+    });
+    this.compressors.set(sessionId, c);
+    if (this.compressors.size > MAX_COMPRESSOR_CACHE) {
+      const oldest = this.compressors.keys().next().value;
+      if (oldest) this.compressors.delete(oldest);
     }
     return c;
   }

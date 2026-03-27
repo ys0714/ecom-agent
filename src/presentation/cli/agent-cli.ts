@@ -16,8 +16,14 @@ import type { Message } from '../../domain/types.js';
 import { vectorStore } from '../../infra/adapters/vector-store.js';
 
 async function main() {
-  await vectorStore.initialize();
-  console.log(`[ecom-agent] Vector DB: ChromaDB @ ${config.vectorStore.url}`);
+  let vs: typeof vectorStore | undefined;
+  try {
+    await vectorStore.initialize();
+    vs = vectorStore;
+    console.log(`[ecom-agent] Vector DB ready: ChromaDB @ ${config.vectorStore.url}`);
+  } catch {
+    console.warn('[ecom-agent] ChromaDB unavailable, few-shot retrieval disabled');
+  }
 
   const eventBus = new InMemoryEventBus();
   const redis = new InMemoryRedisClient();
@@ -74,7 +80,7 @@ async function main() {
     coldStartManager: new ColdStartManager(),
     productService,
     slidingWindowSize: config.business.slidingWindowSize,
-    vectorStore,
+    vectorStore: vs,
   });
 
   const messages: Message[] = [];

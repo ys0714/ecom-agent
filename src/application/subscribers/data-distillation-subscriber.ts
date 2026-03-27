@@ -22,18 +22,29 @@ export class DataDistillationSubscriber implements EventSubscriber {
       });
   }
 
+  private sanitizeSystemPrompt(content: string): string {
+    return content
+      .replace(/用户画像[（(]?[^：:]*[）)]?[：:][^\n]*/g, '用户画像：[REDACTED]')
+      .replace(/身高[：:]\s*\d+/g, '身高：[REDACTED]')
+      .replace(/体重[：:]\s*\d+/g, '体重：[REDACTED]')
+      .replace(/\d{11}/g, '[PHONE]')
+      .replace(/[\w.-]+@[\w.-]+\.\w+/g, '[EMAIL]');
+  }
+
   private async appendLog(event: AgentEvent): Promise<void> {
     await fs.mkdir(this.outputDir, { recursive: true });
-    
-    // Distillation JSONL in OpenAI fine-tuning format
-    // {"messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
-    
+
     const messages = event.payload.messagesForDistillation as Message[];
     const assistantMessage = event.payload.assistantMessage as string;
 
+    const sanitized = messages.map(m => ({
+      role: m.role,
+      content: m.role === 'system' ? this.sanitizeSystemPrompt(m.content) : m.content,
+    }));
+
     const distillationData = {
       messages: [
-        ...messages.map(m => ({ role: m.role, content: m.content })),
+        ...sanitized,
         { role: 'assistant', content: assistantMessage }
       ],
       metadata: {
@@ -45,7 +56,7 @@ export class DataDistillationSubscriber implements EventSubscriber {
 
     const filePath = path.join(this.outputDir, 'distillation.jsonl');
     const line = JSON.stringify(distillationData) + '\n';
-    
+
     await fs.appendFile(filePath, line, 'utf-8');
   }
 }
