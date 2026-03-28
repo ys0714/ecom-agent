@@ -1,11 +1,11 @@
 import type { GuardrailResult, WorkflowType } from '../../domain/types.js';
 
 const WORKFLOW_TOOL_WHITELIST: Record<WorkflowType, string[]> = {
-  product_consult: ['search_product', 'get_product_detail', 'recommend_spec', 'get_profile'],
-  after_sale: ['get_order', 'create_refund', 'create_exchange', 'get_policy'],
-  logistics: ['get_order', 'track_logistics'],
-  complaint: ['get_order', 'create_ticket', 'offer_compensation', 'transfer_human'],
-  general: ['get_profile'],
+  product_consult: ['search_product', 'get_product_detail', 'recommend_spec', 'get_profile', 'recall_history'],
+  after_sale: ['get_order', 'create_refund', 'create_exchange', 'get_policy', 'recall_history'],
+  logistics: ['get_order', 'track_logistics', 'recall_history'],
+  complaint: ['get_order', 'create_ticket', 'offer_compensation', 'transfer_human', 'recall_history'],
+  general: ['get_profile', 'recall_history'],
 };
 
 export interface ExecutionGuardConfig {

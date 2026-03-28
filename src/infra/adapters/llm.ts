@@ -8,13 +8,15 @@ export interface ToolCall {
   arguments: string; // JSON string
 }
 
+export type LLMTool = ChatCompletionTool;
+
 export interface ChatResponse {
   content: string;
   toolCalls?: ToolCall[];
 }
 
 export interface LLMClient {
-  chat(messages: Message[], options?: { temperature?: number; maxTokens?: number; tools?: ChatCompletionTool[] }): Promise<ChatResponse>;
+  chat(messages: Message[], options?: { temperature?: number; maxTokens?: number; tools?: LLMTool[] }): Promise<ChatResponse>;
 }
 
 function toOpenAIMessages(messages: Message[]): ChatCompletionMessageParam[] {
@@ -62,7 +64,7 @@ export class OpenAICompatibleClient implements LLMClient {
     this.defaultTemperature = opts.temperature ?? 0.7;
   }
 
-  async chat(messages: Message[], options?: { temperature?: number; maxTokens?: number; tools?: ChatCompletionTool[] }): Promise<ChatResponse> {
+  async chat(messages: Message[], options?: { temperature?: number; maxTokens?: number; tools?: LLMTool[] }): Promise<ChatResponse> {
     const response = await this.client.chat.completions.create({
       model: this.modelId,
       messages: toOpenAIMessages(messages),

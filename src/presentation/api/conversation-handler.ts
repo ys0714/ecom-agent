@@ -40,7 +40,13 @@ export function registerConversationRoutes(
       });
     }
 
-    const session = sessionManager.getOrCreate(sessionId, userId);
+    let session = sessionManager.get(sessionId);
+    if (!session) {
+      session = await sessionManager.load(sessionId) ?? undefined;
+    }
+    if (!session) {
+      session = sessionManager.create(sessionId, userId);
+    }
 
     // 1. 加载持久化主画像
     let profile = await profileStore.load(userId);

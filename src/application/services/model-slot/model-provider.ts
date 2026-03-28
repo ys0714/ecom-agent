@@ -3,7 +3,7 @@ import {
   retry, handleAll, wrap, timeout, TimeoutStrategy,
   circuitBreaker,
 } from 'cockatiel';
-import type { LLMClient } from '../../../infra/adapters/llm.js';
+import type { LLMClient, LLMTool } from '../../../infra/adapters/llm.js';
 import type { Message, ModelProvider as ModelProviderConfig } from '../../../domain/types.js';
 
 export class ResilientModelProvider {
@@ -37,7 +37,7 @@ export class ResilientModelProvider {
     return this.config.modelId;
   }
 
-  async infer(messages: Message[], tools?: any[]): Promise<import('../../../infra/adapters/llm.js').ChatResponse> {
+  async infer(messages: Message[], tools?: LLMTool[]): Promise<import('../../../infra/adapters/llm.js').ChatResponse> {
     return this.policy.execute(() =>
       this.client.chat(messages, {
         temperature: this.config.temperature,

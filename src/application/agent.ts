@@ -12,10 +12,14 @@ import { SpecRecommendationEvaluator } from './services/data-flywheel/evaluator.
 import { SegmentCompressor } from './services/context/segment-compressor.js';
 import type { ProfileStore } from './services/profile-store.js';
 import type { ProductService } from '../infra/adapters/product-service.js';
-import type { LLMClient } from '../infra/adapters/llm.js';
+import type { LLMClient, LLMTool } from '../infra/adapters/llm.js';
 import type { VectorStore } from '../infra/adapters/vector-store.js';
+import { ExecutionGuard } from './guardrails/execution-guard.js';
 
 const GUARDRAIL_INSTRUCTIONS = '你不能做出退款、赔偿等未经授权的承诺。不要暴露用户的手机号、地址等隐私信息。不要自行生成【推荐】【规格推荐】等格式的尺码推荐文案，尺码推荐由系统自动附加。';
+const MAX_TOOL_CALLS_PER_TURN = 2;
+const MAX_RECALL_TURNS = 20;
+const MAX_RECALL_CHARS = 4000;
 
 export interface AgentDeps {
   eventBus: InMemoryEventBus;
@@ -29,6 +33,7 @@ export interface AgentDeps {
   slidingWindowSize?: number;
   segmentCompressor?: SegmentCompressor;
   vectorStore?: VectorStore;
+  executionGuard?: ExecutionGuard;
 }
 
 const MAX_COMPRESSOR_CACHE = 200;
@@ -37,10 +42,12 @@ export class Agent {
   private deps: AgentDeps;
   private windowSize: number;
   private compressors = new Map<string, SegmentCompressor>();
+  private executionGuard: ExecutionGuard;
 
   constructor(deps: AgentDeps) {
     this.deps = deps;
     this.windowSize = deps.slidingWindowSize ?? 10;
+    this.executionGuard = deps.executionGuard ?? new ExecutionGuard();
   }
 
   private getCompressor(sessionId: string): SegmentCompressor {
@@ -129,7 +136,7 @@ export class Agent {
       ...window,
     ];
 
-    const tools = [{
+    const tools: LLMTool[] = [{
       type: 'function',
       function: {
         name: 'recall_history',
@@ -152,20 +159,48 @@ export class Agent {
       let response = await modelSlotManager.infer('conversation', messages, sessionId, tools);
 
       if (response.toolCalls && response.toolCalls.length > 0) {
-        for (const tc of response.toolCalls) {
+        const toolCalls = response.toolCalls.slice(0, MAX_TOOL_CALLS_PER_TURN);
+        for (const tc of toolCalls) {
           if (tc.name === 'recall_history') {
+            const permission = this.executionGuard.checkToolPermission(tc.name, intentResult.intent);
+            if (!permission.passed) {
+              eventBus.publish(createEvent('guardrail:blocked', {
+                blockedBy: permission.blockedBy ?? 'execution',
+                reason: permission.reason ?? `tool ${tc.name} blocked`,
+                tool: tc.name,
+              }, sessionId));
+              messages.push({ role: 'assistant', content: '', toolCallId: tc.id, name: tc.name, timestamp: new Date().toISOString() });
+              messages.push({ role: 'tool', content: '检索失败: 工具权限受限', toolCallId: tc.id, name: tc.name, timestamp: new Date().toISOString() });
+              continue;
+            }
             try {
               const args = JSON.parse(tc.arguments);
-              const start = Math.max(0, args.startTurn);
-              const end = Math.min(conversationHistory.length - 1, args.endTurn);
-              const recalled = conversationHistory.slice(start, end + 1)
+              const rawStart = Number(args.startTurn);
+              const rawEnd = Number(args.endTurn);
+              if (!Number.isFinite(rawStart) || !Number.isFinite(rawEnd)) {
+                throw new Error('invalid range');
+              }
+              const start = Math.max(0, Math.floor(rawStart));
+              const requestedEnd = Math.max(start, Math.floor(rawEnd));
+              const cappedEnd = Math.min(start + MAX_RECALL_TURNS - 1, requestedEnd);
+              const end = Math.min(conversationHistory.length - 1, cappedEnd);
+
+              let recalled = conversationHistory.slice(start, end + 1)
                 .map(m => `[${m.role === 'user' ? '用户' : '客服'}]: ${m.content}`)
                 .join('\n');
-              
+              if (recalled.length > MAX_RECALL_CHARS) {
+                recalled = `${recalled.slice(0, MAX_RECALL_CHARS)}\n...(已截断)`;
+              }
+
               messages.push({ role: 'assistant', content: '', toolCallId: tc.id, name: tc.name, timestamp: new Date().toISOString() });
               messages.push({ role: 'tool', content: recalled || '无记录', toolCallId: tc.id, name: tc.name, timestamp: new Date().toISOString() });
-              
-              eventBus.publish(createEvent('tool:call', { tool: 'recall_history', args, result: recalled }, sessionId));
+
+              eventBus.publish(createEvent('tool:call', { tool: 'recall_history', args: { startTurn: start, endTurn: end } }, sessionId));
+              eventBus.publish(createEvent('tool:result', {
+                tool: 'recall_history',
+                resultPreview: recalled.slice(0, 300),
+                truncated: recalled.endsWith('...(已截断)'),
+              }, sessionId));
             } catch (e) {
               messages.push({ role: 'assistant', content: '', toolCallId: tc.id, name: tc.name, timestamp: new Date().toISOString() });
               messages.push({ role: 'tool', content: '检索失败: 参数错误', toolCallId: tc.id, name: tc.name, timestamp: new Date().toISOString() });

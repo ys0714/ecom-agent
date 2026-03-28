@@ -1,5 +1,5 @@
 import type { ModelType, ModelProvider as ProviderConfig, ModelConfig, HealthStatus, Message } from '../../../domain/types.js';
-import type { LLMClient } from '../../../infra/adapters/llm.js';
+import type { LLMClient, LLMTool } from '../../../infra/adapters/llm.js';
 import { ResilientModelProvider } from './model-provider.js';
 import { InMemoryEventBus, createEvent } from '../../../domain/event-bus.js';
 
@@ -50,7 +50,7 @@ export class ModelSlotManager {
     );
   }
 
-  async infer(slotId: string, messages: Message[], sessionId?: string, tools?: any[]): Promise<import('../../../infra/adapters/llm.js').ChatResponse> {
+  async infer(slotId: string, messages: Message[], sessionId?: string, tools?: LLMTool[]): Promise<import('../../../infra/adapters/llm.js').ChatResponse> {
     const slot = this.slots.get(slotId);
     if (!slot) throw new Error(`Slot ${slotId} not found`);
 
