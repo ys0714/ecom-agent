@@ -57,7 +57,7 @@ describe('detectAllByRules (multi-signal)', () => {
 
 describe('ModelPreferenceAnalyzer (LLM deep path)', () => {
   function mockLLMResponse(json: object): LLMClient {
-    return { chat: vi.fn().mockResolvedValue(JSON.stringify(json)) };
+    return { chat: vi.fn().mockResolvedValue({ content: JSON.stringify(json) }) };
   }
 
   it('analyzes implicit fit preference', async () => {
@@ -114,7 +114,7 @@ describe('ModelPreferenceAnalyzer (LLM deep path)', () => {
   });
 
   it('handles malformed LLM response', async () => {
-    const llm: LLMClient = { chat: vi.fn().mockResolvedValue('not json at all') };
+    const llm: LLMClient = { chat: vi.fn().mockResolvedValue({ content: 'not json at all' }) };
     const analyzer = new ModelPreferenceAnalyzer(llm);
     const signal = await analyzer.analyze('test');
     expect(signal.type).toBe('none');
@@ -140,12 +140,12 @@ describe('PreferenceDetector hybrid routing', () => {
 
   it('falls through to LLM when rules do not match', async () => {
     const llm: LLMClient = {
-      chat: vi.fn().mockResolvedValue(JSON.stringify({
+      chat: vi.fn().mockResolvedValue({ content: JSON.stringify({
         type: 'fit_modifier', confidence: 0.75,
         value: { fitDirection: 'loose' },
         scope: 'this_turn', subject: 'self',
         reasoning: '隐式偏好',
-      })),
+      }) }),
     };
     const detector = new PreferenceDetector(llm);
 

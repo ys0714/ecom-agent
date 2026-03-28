@@ -37,11 +37,12 @@ export class ResilientModelProvider {
     return this.config.modelId;
   }
 
-  async infer(messages: Message[]): Promise<string> {
+  async infer(messages: Message[], tools?: any[]): Promise<import('../../../infra/adapters/llm.js').ChatResponse> {
     return this.policy.execute(() =>
       this.client.chat(messages, {
         temperature: this.config.temperature,
         maxTokens: this.config.maxTokens,
+        tools,
       })
     );
   }

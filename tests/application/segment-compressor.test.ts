@@ -128,7 +128,7 @@ describe('SegmentCompressor', () => {
   describe('with LLM client', () => {
     it('uses LLM for compression when available', async () => {
       const mockLLM = {
-        chat: vi.fn().mockResolvedValue('用户咨询了羽绒服p101的尺码推荐'),
+        chat: vi.fn().mockResolvedValue({ content: '用户咨询了羽绒服p101的尺码推荐' }),
       };
       const llmCompressor = new SegmentCompressor({ segmentSize: 3, llmClient: mockLLM });
 

@@ -103,11 +103,11 @@ ${conversation}
 摘要：`;
 
     try {
-      const result = await this.llmClient!.chat(
+      const response = await this.llmClient!.chat(
         [{ role: 'user', content: prompt, timestamp: '' }],
         { temperature: 0.1, maxTokens: 150 },
       );
-      return result.trim() || this.compressWithRules(messages);
+      return response.content.trim() || this.compressWithRules(messages);
     } catch {
       return this.compressWithRules(messages);
     }

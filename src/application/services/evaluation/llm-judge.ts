@@ -37,7 +37,7 @@ ${conversationText}
         { role: 'user', content: judgePrompt, timestamp: '' },
       ], { temperature: 0.1 });
 
-      const match = response.match(/\{[^}]+\}/);
+      const match = response.content.match(/\{[^}]+\}/);
       if (match) {
         const scores = JSON.parse(match[0]);
         return {

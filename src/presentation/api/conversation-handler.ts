@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Agent } from '../../application/agent.js';
 import type { ProfileStore } from '../../application/services/profile-store.js';
+import type { SessionProfileStore } from '../../application/services/session-profile-store.js';
 import type { ProfileProvider } from '../../application/services/profile-provider.js';
 import { SessionManager } from '../../application/services/session-manager.js';
 import { UserProfileEntity } from '../../domain/entities/user-profile.entity.js';
@@ -18,7 +19,8 @@ export function registerConversationRoutes(
   profileStore: ProfileStore,
   profileProvider: ProfileProvider,
   sessionManager: SessionManager,
-  eventBus: InMemoryEventBus
+  eventBus: InMemoryEventBus,
+  sessionProfileStore: SessionProfileStore
 ) {
   app.post<{
     Body: { sessionId: string; userId: string; message: string };
@@ -40,19 +42,33 @@ export function registerConversationRoutes(
 
     const session = sessionManager.getOrCreate(sessionId, userId);
 
+    // 1. 加载持久化主画像
     let profile = await profileStore.load(userId);
     if (!profile) {
       profile = await profileProvider.getProfile(userId);
       if (profile) {
-        await profileStore.save(profile); // 缓存到本地/Redis
+        await profileStore.save(profile);
       } else {
         profile = new UserProfileEntity(userId);
       }
     }
 
+    // 2. 加载会话级临时画像，并与主画像合并
+    let sessionProfile = await sessionProfileStore.load(sessionId, userId);
+    if (!sessionProfile) {
+      sessionProfile = new UserProfileEntity(userId);
+    } else {
+      profile.mergeSessionProfile(sessionProfile);
+    }
+
+    // 此时 profile 包含永久画像和当前会话临时画像的合并结果
     const result = await agent.handleMessage(
       userId, sessionId, message, session.messages, profile,
     );
+
+    // 3. 更新会话临时画像 (只需将会话中发生的变化记录即可)
+    // 简单起见，我们直接将经过 Agent 处理后的 profile 作为当前会话的最新临时画像状态保存
+    await sessionProfileStore.save(sessionId, profile);
 
     const outputCheck = outputGuard.checkAndSanitize(result.reply);
     const finalReply = outputCheck.sanitizedContent ?? result.reply;

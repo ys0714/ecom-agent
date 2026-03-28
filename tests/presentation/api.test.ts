@@ -7,6 +7,7 @@ import { IntentRouter } from '../../src/application/workflow/intent-router.js';
 import { ColdStartManager } from '../../src/application/services/profile-engine/cold-start-manager.js';
 import { InMemoryEventBus } from '../../src/domain/event-bus.js';
 import { InMemoryRedisClient } from '../../src/infra/adapters/redis.js';
+import { SessionProfileStore } from '../../src/application/services/session-profile-store.js';
 import { UserProfileEntity } from '../../src/domain/entities/user-profile.entity.js';
 import { config } from '../../src/infra/config.js';
 import { MockProfileProvider } from '../../src/infra/adapters/mock-profile-provider.js';
@@ -17,10 +18,11 @@ describe('API endpoints', () => {
   const tmpDir = path.join(os.tmpdir(), `api-test-${Date.now()}`);
   const redis = new InMemoryRedisClient();
   const profileStore = new ProfileStore(redis, tmpDir);
+  const sessionProfileStore = new SessionProfileStore(redis, tmpDir);
   const eventBus = new InMemoryEventBus();
 
   const modelSlotManager = new ModelSlotManager(eventBus, () => ({
-    chat: vi.fn().mockResolvedValue('这是一个测试回复'),
+    chat: vi.fn().mockResolvedValue({ content: '这是一个测试回复' }),
   }));
   modelSlotManager.registerSlot('conversation', 'conversation',
     { name: 'mock', endpoint: '', modelId: 'mock', maxTokens: 100, temperature: 0.7, timeoutMs: 5000 },
@@ -35,7 +37,7 @@ describe('API endpoints', () => {
     coldStartManager: new ColdStartManager(),
   });
 
-  const app = buildServer(agent, profileStore, profileProvider, config);
+  const app = buildServer({ agent, profileStore, sessionProfileStore, profileProvider, config });
 
   afterAll(async () => { await app.close(); });
 
@@ -117,7 +119,7 @@ describe('API endpoints', () => {
   });
 
   it('POST /api/conversation sanitizes PII in output', async () => {
-    const mockChat = vi.fn().mockResolvedValue('您的手机号是13812345678');
+    const mockChat = vi.fn().mockResolvedValue({ content: '您的手机号是13812345678' });
     const piiModelSlotManager = new ModelSlotManager(eventBus, () => ({ chat: mockChat }));
     piiModelSlotManager.registerSlot('conversation', 'conversation',
       { name: 'mock', endpoint: '', modelId: 'mock', maxTokens: 100, temperature: 0.7, timeoutMs: 5000 },
@@ -128,7 +130,7 @@ describe('API endpoints', () => {
       intentRouter: new IntentRouter(),
       coldStartManager: new ColdStartManager(),
     });
-    const piiApp = buildServer(piiAgent, profileStore, profileProvider, config);
+    const piiApp = buildServer({ agent: piiAgent, profileStore, sessionProfileStore, profileProvider, config });
 
     const res = await piiApp.inject({
       method: 'POST', url: '/api/conversation',

@@ -78,7 +78,7 @@ describe('ComplaintWorkflow', () => {
 describe('LLMJudge', () => {
   it('evaluates conversation quality with mock LLM', async () => {
     const mockLLM = {
-      chat: vi.fn().mockResolvedValue('{"helpfulness": 0.8, "correctness": 0.9, "safety": 1.0}'),
+      chat: vi.fn().mockResolvedValue({ content: '{"helpfulness": 0.8, "correctness": 0.9, "safety": 1.0}' }),
     };
     const judge = new LLMJudge(mockLLM);
     const messages: Message[] = [

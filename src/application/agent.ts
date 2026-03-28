@@ -120,18 +120,61 @@ export class Agent {
     }
 
     const fewShotExamples = await this.getFewShotExamples(userText);
-    const systemPrompt = this.buildSystemPrompt(profile, intentResult.intent, activeRole, compressor) + coldStartInstruction + fewShotExamples;
+    const systemPrompt = this.buildSystemPrompt(profile, intentResult.intent, activeRole, compressor, fewShotExamples, coldStartInstruction);
 
     const window = conversationHistory.slice(-this.windowSize);
+    // Layer 4: Current Message is part of the window array.
     const messages: Message[] = [
       { role: 'system', content: systemPrompt, timestamp: new Date().toISOString() },
       ...window,
     ];
 
+    const tools = [{
+      type: 'function',
+      function: {
+        name: 'recall_history',
+        description: '当历史摘要无法提供足够细节时，根据摘要中的轮次范围（如"第0-4轮"）检索完整原始对话记录。',
+        parameters: {
+          type: 'object',
+          properties: {
+            startTurn: { type: 'number', description: '起始轮次（如第0-4轮则传入0）' },
+            endTurn: { type: 'number', description: '结束轮次（如第0-4轮则传入4）' }
+          },
+          required: ['startTurn', 'endTurn']
+        }
+      }
+    }];
+
     const startTime = Date.now();
-    let reply: string;
+    let reply: string = '';
+    
     try {
-      reply = await modelSlotManager.infer('conversation', messages, sessionId);
+      let response = await modelSlotManager.infer('conversation', messages, sessionId, tools);
+
+      if (response.toolCalls && response.toolCalls.length > 0) {
+        for (const tc of response.toolCalls) {
+          if (tc.name === 'recall_history') {
+            try {
+              const args = JSON.parse(tc.arguments);
+              const start = Math.max(0, args.startTurn);
+              const end = Math.min(conversationHistory.length - 1, args.endTurn);
+              const recalled = conversationHistory.slice(start, end + 1)
+                .map(m => `[${m.role === 'user' ? '用户' : '客服'}]: ${m.content}`)
+                .join('\n');
+              
+              messages.push({ role: 'assistant', content: '', toolCallId: tc.id, name: tc.name, timestamp: new Date().toISOString() });
+              messages.push({ role: 'tool', content: recalled || '无记录', toolCallId: tc.id, name: tc.name, timestamp: new Date().toISOString() });
+              
+              eventBus.publish(createEvent('tool:call', { tool: 'recall_history', args, result: recalled }, sessionId));
+            } catch (e) {
+              messages.push({ role: 'assistant', content: '', toolCallId: tc.id, name: tc.name, timestamp: new Date().toISOString() });
+              messages.push({ role: 'tool', content: '检索失败: 参数错误', toolCallId: tc.id, name: tc.name, timestamp: new Date().toISOString() });
+            }
+          }
+        }
+        response = await modelSlotManager.infer('conversation', messages, sessionId, tools);
+      }
+      reply = response.content;
     } catch (err) {
       eventBus.publish(createEvent('system:error', {
         error: err instanceof Error ? err.message : String(err),
@@ -221,10 +264,13 @@ export class Agent {
     }
   }
 
-  private buildSystemPrompt(profile: UserProfileEntity, workflow: WorkflowType, activeRole?: GenderRole, compressor?: SegmentCompressor): string {
-    const completeness = profile.getCompleteness();
+  private buildSystemPrompt(profile: UserProfileEntity, workflow: WorkflowType, activeRole?: GenderRole, compressor?: SegmentCompressor, fewShotExamples: string = '', coldStartInstruction: string = ''): string {
+    // --- Layer 1: Bootstrap (不变的系统底层) ---
+    const roleInstruction = '你是一个专业的电商客服。回复要求：简洁专业，不超过200字。';
 
     let profileSummary: string;
+    const completeness = profile.getCompleteness();
+    
     if (activeRole && activeRole !== profile.spec.defaultRole) {
       const gp = profile.getGenderProfile(activeRole);
       profileSummary = gp
@@ -239,10 +285,8 @@ export class Agent {
     }
 
     const profileSection = profileSummary
-      ? (completeness >= 0.7 ? `用户画像：${profileSummary}` : `用户画像（积累中）：${profileSummary}`)
-      : '暂无用户画像，请在对话中主动询问用户的身高、体重、常穿尺码等信息。';
-
-    const historySection = compressor?.formatForPrompt() ?? '';
+      ? (completeness >= 0.7 ? `[用户画像]\n${profileSummary}` : `[用户画像] (积累中)\n${profileSummary}`)
+      : '[用户画像]\n暂无用户画像，请在对话中主动询问用户的身高、体重、常穿尺码等信息。';
 
     const workflowInstructions: Record<WorkflowType, string> = {
       product_consult: '帮助用户选购商品，提供规格推荐和比价建议。',
@@ -251,12 +295,21 @@ export class Agent {
       complaint: '请以安抚为优先策略，耐心倾听用户诉求。',
       general: '回答用户的一般性问题。',
     };
+    
+    const workflowSection = `[当前场景]\n${workflowInstructions[workflow]}`;
+    const guardrailSection = `[安全护栏]\n${GUARDRAIL_INSTRUCTIONS}`;
+    
+    const bootstrapLayer = `${roleInstruction}\n\n${profileSection}\n\n${workflowSection}\n\n${guardrailSection}`;
 
-    return `你是一个专业的电商客服。
-${profileSection}${historySection}
-当前场景：${workflowInstructions[workflow]}
-${GUARDRAIL_INSTRUCTIONS}
-回复要求：简洁专业，不超过200字。`;
+    // --- Layer 2: Conversation History (受压缩的历史层) ---
+    const historySection = compressor?.formatForPrompt() ?? '';
+    const historyLayer = historySection ? `\n\n${historySection}` : '';
+
+    // --- Layer 3: Tool Results (按需检索的工作记忆层) ---
+    // (Few-shot examples and cold start dynamic instructions act as injected facts)
+    const toolResultsLayer = (fewShotExamples || coldStartInstruction) ? `\n\n--- 动态工作记忆 ---\n${coldStartInstruction}${fewShotExamples}` : '';
+
+    return `${bootstrapLayer}${historyLayer}${toolResultsLayer}`;
   }
 
   private async trySpecRecommendation(

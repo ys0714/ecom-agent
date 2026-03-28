@@ -15,10 +15,12 @@ import { registerProfileRoutes } from './api/profile-handler.js';
 import { registerAdminRoutes } from './api/admin-handler.js';
 import { registerMetricsRoutes } from './api/metrics-handler.js';
 import { InMemoryEventBus } from '../domain/event-bus.js';
+import type { SessionProfileStore } from '../application/services/session-profile-store.js';
 
 export interface ServerDeps {
   agent: Agent;
   profileStore: ProfileStore;
+  sessionProfileStore: SessionProfileStore;
   profileProvider: ProfileProvider;
   config: AppConfig;
   sessionManager?: SessionManager;
@@ -31,7 +33,15 @@ export interface ServerDeps {
 }
 
 export function buildServer(deps: ServerDeps): ReturnType<typeof Fastify>;
-export function buildServer(agent: Agent, profileStore: ProfileStore, profileProvider: ProfileProvider, config: AppConfig, sessionManager?: SessionManager, eventBus?: import('../domain/event-bus.js').InMemoryEventBus): ReturnType<typeof Fastify>;
+export function buildServer(
+  agent: Agent, 
+  profileStore: ProfileStore, 
+  profileProvider: ProfileProvider, 
+  config: AppConfig, 
+  sessionManager?: SessionManager, 
+  eventBus?: import('../domain/event-bus.js').InMemoryEventBus,
+  sessionProfileStore?: SessionProfileStore
+): ReturnType<typeof Fastify>;
 export function buildServer(
   agentOrDeps: Agent | ServerDeps,
   profileStore?: ProfileStore,
@@ -39,12 +49,21 @@ export function buildServer(
   config?: AppConfig,
   sessionManager?: SessionManager,
   eventBus?: import('../domain/event-bus.js').InMemoryEventBus,
+  sessionProfileStore?: SessionProfileStore
 ) {
   let deps: ServerDeps;
   if ('agent' in agentOrDeps && 'config' in agentOrDeps) {
     deps = agentOrDeps as ServerDeps;
   } else {
-    deps = { agent: agentOrDeps as Agent, profileStore: profileStore!, profileProvider: profileProvider!, config: config!, sessionManager, eventBus };
+    deps = { 
+      agent: agentOrDeps as Agent, 
+      profileStore: profileStore!, 
+      sessionProfileStore: sessionProfileStore!,
+      profileProvider: profileProvider!, 
+      config: config!, 
+      sessionManager, 
+      eventBus 
+    };
   }
 
   const app = Fastify({ logger: deps.config.server.nodeEnv !== 'test' });
@@ -94,7 +113,7 @@ export function buildServer(
     };
   });
 
-  registerConversationRoutes(app, deps.agent, deps.profileStore, deps.profileProvider, sessMgr, bus);
+  registerConversationRoutes(app, deps.agent, deps.profileStore, deps.profileProvider, sessMgr, bus, deps.sessionProfileStore);
   registerProfileRoutes(app, deps.profileStore, deps.profileProvider);
   registerAdminRoutes(app, deps.configWatch, deps.autoPrompt);
   registerMetricsRoutes(app, deps.metricsSubscriber);

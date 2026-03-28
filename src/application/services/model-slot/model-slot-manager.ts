@@ -50,13 +50,13 @@ export class ModelSlotManager {
     );
   }
 
-  async infer(slotId: string, messages: Message[], sessionId?: string): Promise<string> {
+  async infer(slotId: string, messages: Message[], sessionId?: string, tools?: any[]): Promise<import('../../../infra/adapters/llm.js').ChatResponse> {
     const slot = this.slots.get(slotId);
     if (!slot) throw new Error(`Slot ${slotId} not found`);
 
     const startTime = Date.now();
     try {
-      const result = await slot.primary.infer(messages);
+      const result = await slot.primary.infer(messages, tools);
       this.eventBus.publish(createEvent('model:inference', {
         slotId, model: slot.primary.modelId, latencyMs: Date.now() - startTime,
       }, sessionId));
@@ -68,7 +68,7 @@ export class ModelSlotManager {
           reason: primaryErr instanceof Error ? primaryErr.message : String(primaryErr),
         }, sessionId));
 
-        const result = await slot.fallback.infer(messages);
+        const result = await slot.fallback.infer(messages, tools);
         this.eventBus.publish(createEvent('model:inference', {
           slotId, model: slot.fallback.modelId, latencyMs: Date.now() - startTime, isFallback: true,
         }, sessionId));

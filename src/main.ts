@@ -1,9 +1,10 @@
 import { config } from './infra/config.js';
 import { createLLMClient } from './infra/adapters/llm.js';
-import { InMemoryRedisClient } from './infra/adapters/redis.js';
+import { createRedisClient, IORedisClient, InMemoryRedisClient, type RedisClient } from './infra/adapters/redis.js';
 import { MockProductService } from './infra/adapters/product-service.js';
 import { InMemoryEventBus } from './domain/event-bus.js';
 import { ProfileStore } from './application/services/profile-store.js';
+import { SessionManager } from './application/services/session-manager.js';
 import { ModelSlotManager } from './application/services/model-slot/model-slot-manager.js';
 import { IntentRouter } from './application/workflow/intent-router.js';
 import { ColdStartManager } from './application/services/profile-engine/cold-start-manager.js';
@@ -23,6 +24,8 @@ import { buildServer } from './presentation/server.js';
 import { MockProfileProvider } from './infra/adapters/mock-profile-provider.js';
 import { vectorStore } from './infra/adapters/vector-store.js';
 
+import { SessionProfileStore } from './application/services/session-profile-store.js';
+
 async function bootstrap() {
   let vs: typeof vectorStore | undefined;
   try {
@@ -34,8 +37,24 @@ async function bootstrap() {
   }
 
   const eventBus = new InMemoryEventBus();
-const redis = new InMemoryRedisClient();
-const profileStore = new ProfileStore(redis, config.paths.profiles);
+
+  // 创建 Redis 客户端（优先使用真实 Redis，失败则回退到内存版）
+  let redis: RedisClient;
+  try {
+    redis = createRedisClient(config.redis.url);
+    if (redis instanceof IORedisClient) {
+      console.log(`[ecom-agent] Redis connected: ${config.redis.url}`);
+    } else {
+      console.log('[ecom-agent] Using in-memory Redis (data will be lost on restart)');
+    }
+  } catch (err) {
+    console.warn(`[ecom-agent] Redis connection failed, using in-memory: ${err instanceof Error ? err.message : err}`);
+    redis = new InMemoryRedisClient();
+  }
+
+  const profileStore = new ProfileStore(redis, config.paths.profiles);
+  const sessionProfileStore = new SessionProfileStore(redis, config.paths.sessions);
+  console.log(`[ecom-agent] Profile store ready: ${config.paths.profiles}`);
 const profileProvider = new MockProfileProvider();
 const productService = new MockProductService();
 
@@ -84,27 +103,40 @@ const agent = new Agent({
   vectorStore: vs,
 });
 
-eventBus.register(new SessionLogSubscriber(config.paths.sessions));
-eventBus.register(new DataDistillationSubscriber(config.paths.dataDir));
-eventBus.register(new MetricsSubscriber());
-eventBus.register(new AlertSubscriber());
+// 创建订阅者实例（需要保留引用以传递给 server）
+const sessionLogSub = new SessionLogSubscriber(config.paths.sessions);
+const dataDistillationSub = new DataDistillationSubscriber(config.paths.dataDir);
+const metricsSub = new MetricsSubscriber();
+const alertSub = new AlertSubscriber();
+
+eventBus.register(sessionLogSub);
+eventBus.register(dataDistillationSub);
+eventBus.register(metricsSub);
+eventBus.register(alertSub);
 eventBus.register(configWatch);
 eventBus.register(autoPrompt);
 
 const server = buildServer({
   agent,
   profileStore,
+  sessionProfileStore,
   profileProvider,
   config,
+  sessionManager: new SessionManager(config.paths.sessions),
+  metricsSubscriber: metricsSub,
   configWatch,
   autoPrompt,
   eventBus,
+  redis,
+  llm: llmClient,
 });
 
   server.listen({ port: config.server.port, host: '0.0.0.0' }).then((address: string) => {
     console.log(`[ecom-agent] server listening on ${address}`);
     console.log(`[ecom-agent] LLM: ${config.llm.modelId} @ ${config.llm.baseUrl}`);
     console.log(`[ecom-agent] data dir: ${config.paths.dataDir}`);
+    console.log(`[ecom-agent] metrics collection: enabled`);
+    console.log(`[ecom-agent] profile persistence: ${redis instanceof IORedisClient ? 'Redis + File' : 'File only (memory cache)'}`);
   }).catch((err: unknown) => {
     console.error('[ecom-agent] failed to start:', err);
     process.exit(1);

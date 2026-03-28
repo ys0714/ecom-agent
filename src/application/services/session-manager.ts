@@ -112,4 +112,17 @@ export class SessionManager {
   listActive(): SessionData[] {
     return [...this.activeSessions.values()];
   }
+
+  getMessagesByRange(sessionId: string, startTurn: number, endTurn: number): Message[] {
+    const session = this.activeSessions.get(sessionId);
+    if (!session) return [];
+    
+    // Ensure indices are within bounds
+    const start = Math.max(0, startTurn);
+    const end = Math.min(session.messages.length - 1, endTurn);
+    
+    if (start > end) return [];
+    
+    return session.messages.slice(start, end + 1);
+  }
 }

@@ -124,48 +124,72 @@ function arbitrate(existing: number, incoming: PreferenceSignal): 'accept' | 'me
 - 用户修改规格后下单 → BadCase 信号 + 置信度 -0.1
 - 用户明确纠正 → 直接覆写，无需仲裁
 
-### 2.3 会话记忆与上下文管理
+### 2.3 会话记忆与 Context Window 四层架构管理
 
-> 参考 arxiv 2603.07670（Memory for Autonomous LLM Agents, 2026）、LangGraph 双层记忆、Mem0 记忆层。
-> 核心结论：**画像引擎本身就是长期记忆**（等价于 Mem0 的 fact extraction），唯一缺口是单会话内长对话的上下文丢失。
+> 参考 Claw 四层记忆机制与 Context Window 物理组装策略。
+> 核心结论：大模型的记忆管理本质是对 Context Window（Token 资源）的排兵布阵。系统采用按“抗压缩级别”与“加载时机”划分的**四层记忆架构**，解决超长对话和多意图穿插导致的上下文遗忘问题。
 
-系统采用**画像 Store + 滑动窗口 + 分段压缩**的记忆架构：
+系统在 `Agent.handleMessage()` 组装 Prompt 时，严格遵循以下四层物理结构：
 
-- **画像 Store（跨会话持久）**：Redis（RedisJSON）+ JSON 文件落盘，用户的尺码/体重/偏好等结构化数据跨会话持久化，通过 `summarizeForPrompt()` 注入 System Prompt
-- **滑动窗口（会话内实时）**：最近 K 轮对话（默认 K=10）保留完整消息，FIFO 淘汰
-- **分段压缩（窗口外摘要）**：溢出窗口的消息按段压缩为结构化摘要，被动注入 System Prompt，防止长对话丢失关键上下文（如角色切换、尺码纠正）
-- **会话持久化**：SessionManager + JSONL append-only 写入，支持按 sessionId 重建
+**第一层：Bootstrap 层（系统基座，绝对免疫压缩）**
+- **定位**：放置在 Prompt 最顶端，每次会话强制加载，无论对话多长绝不能被压缩或截断。
+- **内容**：
+  - **SOUL 约束**：系统的“宪法”与角色设定（如 Guardrails 约束："不能做出退款承诺"）。
+  - **USER 长期记忆**：用户画像数据。由 `ProfileStore`（永久画像）和 `SessionProfileStore`（当前会话临时画像）合并后生成 `profile.summarizeForPrompt()`。
+- **作用**：确保 Agent 始终保持正确的服务边界，且永远不会忘记用户的核心身形数据和明确偏好。
 
-**分段压缩机制**：
+**第二层：Conversation History（受压缩的历史层）**
+- **定位**：承载对话上下文，随着对话轮数增加会占用大量 Token。
+- **机制**：
+  - **滑动窗口**：最近 K 轮对话保留完整消息文本。
+  - **分段压缩（Compaction）**：由 `SegmentCompressor` 处理，溢出滑动窗口的历史消息会被压缩为精简的结构化摘要，以高信息密度取代原始 Token。
 
-```
-窗口溢出触发 → 溢出消息分段（固定5轮 or 角色切换强制分段）
-    → LLM 压缩为 CompressedSegment（摘要 + keyFacts + turnRange）
-    → 被动注入 System Prompt 的 [历史摘要] 区域
-```
-
+**压缩段数据结构与索引**：
 ```typescript
 interface CompressedSegment {
   segmentIndex: number;
-  turnRange: [number, number];  // JSONL 行号范围，可回查原始消息
+  turnRange: [number, number];  // 核心指针：JSONL 会话文件中的行号范围
   summary: string;              // "用户为老公选购夹克，身高178体重155斤"
   keyFacts: string[];           // ["角色切换:male", "身高:178", "体重:155"]
   intent: WorkflowType;
 }
 ```
+*注：这里的摘要不仅是总结，更是**索引目录**。`turnRange` 指针使得大模型在需要时能够准确找回原始细节。*
 
-**Prompt 拼接结构**：
+**第三层：Tool Results（按需检索的工作记忆层）**
+- **定位**：仅在当前轮次需要时动态注入的外部知识，用完即抛，不污染长期上下文。
+- **内容**：
+  - **外部事实**：如 `ProductService` 刚刚查到的“商品 p101 的详细规格和材质”。
+  - **Few-shot RAG**：通过 `ChromaDB` 根据当前问题动态召回的优秀历史回复案例。
+  - **历史原文检索（规划中）**：大模型阅读第二层的“历史摘要”后，如果认为缺乏细节，可通过 Tool Call 传入 `turnRange`，系统将原始对话读取并注入到本层，实现**无损细节回溯**。
 
+**第四层：Current Message（当前消息层）**
+- **定位**：Prompt 的最底部，大模型注意力机制最集中的区域。
+- **内容**：用户刚刚发送的最新输入。
+
+**Prompt 组装伪代码示例**：
+
+```typescript
+const messages: Message[] = [
+  // 1. Bootstrap Layer (免疫压缩)
+  { role: 'system', content: `<SOUL>${GUARDRAILS}</SOUL>\n<USER_PROFILE>${profile.summarize()}</USER_PROFILE>` },
+  
+  // 2. Conversation History Layer
+  ...compressor.getSummaryAsMessages(), // 早期对话摘要
+  ...slidingWindow,                      // 最近 K 轮完整对话
+  
+  // 3. Tool Results Layer (按需检索的工作记忆)
+  { role: 'system', content: `<PRODUCT_INFO>${productDetail}</PRODUCT_INFO>\n<FEW_SHOT>${fewShotExamples}</FEW_SHOT>` },
+  
+  // 4. Current Message Layer
+  { role: 'user', content: userText }
+];
 ```
-System Prompt = 画像摘要 + [历史摘要]（压缩段索引列表） + 场景指令 + Guardrails 约束
-Messages = 滑动窗口内的完整消息（最近 K 轮）
-```
 
-**设计决策记录**：
-- 不实现 L1/L2/L3 三层分层记忆（画像 Store 已覆盖长期记忆需求，分层检索是过度设计）
-- 不引入向量记忆（Mem0 式）（与结构化画像引擎功能重复）
-- 摘要被动注入而非主动检索（当前 Agent 无 tool use / ReAct 循环，被动注入零延迟）
-- 主动检索（`recall_context` tool）作为中期演进方向，需先实现 ReAct 循环
+**画像存储的双轨制设计**：
+1. **`ProfileStore` (持久化主画像)**：记录基于订单推算或用户明确纠正的全局稳定身形数据（落盘+Redis）。
+2. **`SessionProfileStore` (会话级临时画像)**：记录当前情境下的临时状态（例如：“今天帮老公看衣服”导致的角色切换与临时体重信息，设置 24h TTL）。
+3. 每次对话时，系统会在内存中动态合并两者，既保证了当前情景推荐的准确性，又避免了单次给他人代购污染用户的永久主画像。
 
 ### 2.4 EventBus + Subscriber 运行时解耦
 

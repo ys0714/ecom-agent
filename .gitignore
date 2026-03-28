@@ -32,3 +32,7 @@ Thumbs.db
 # Multi-Agent Framework
 .multi-agent/
 *-worktrees/
+
+# Runtime/session artifacts (generated during local runs)
+~/
+.ecom-agent/

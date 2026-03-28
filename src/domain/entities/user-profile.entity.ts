@@ -178,6 +178,37 @@ export class UserProfileEntity {
     return entity;
   }
 
+  mergeSessionProfile(sessionProfile: UserProfileEntity): void {
+    const roles: ('femaleClothing' | 'maleClothing' | 'childClothing')[] = ['femaleClothing', 'maleClothing', 'childClothing'];
+    
+    for (const role of roles) {
+      const sessData = sessionProfile._spec[role];
+      if (!sessData) continue;
+      
+      let permData = this._spec[role];
+      if (!permData) {
+        permData = this.emptyGenderProfile();
+        this._spec[role] = permData;
+      }
+      
+      for (const [k, v] of Object.entries(sessData)) {
+        if (v !== null && v !== undefined && (Array.isArray(v) ? v.length > 0 : true)) {
+          (permData as any)[k] = v;
+        }
+      }
+    }
+
+    for (const [dimId, data] of sessionProfile._dimensions.entries()) {
+      this._dimensions.set(dimId, {
+        ...this._dimensions.get(dimId),
+        ...data,
+      });
+    }
+    
+    this._spec.updatedAt = new Date().toISOString();
+    this.recalcCompleteness();
+  }
+
   private recalcCompleteness(): void {
     const scores = [
       computeGenderCompleteness(this._spec.femaleClothing),

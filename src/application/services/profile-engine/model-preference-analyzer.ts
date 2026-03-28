@@ -52,7 +52,7 @@ export class ModelPreferenceAnalyzer {
         { role: 'user', content: prompt, timestamp: '' },
       ], { temperature: 0.1, maxTokens: 256 });
 
-      return this.parseResponse(response);
+      return this.parseResponse(response.content);
     } catch {
       return this.fallback();
     }

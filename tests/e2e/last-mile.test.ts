@@ -11,7 +11,7 @@ import { MockProductService } from '../../src/infra/adapters/product-service.js'
 import { InMemoryEventBus } from '../../src/domain/event-bus.js';
 import { InMemoryRedisClient } from '../../src/infra/adapters/redis.js';
 import { UserProfileEntity } from '../../src/domain/entities/user-profile.entity.js';
-import { MockOrderService } from '../../src/infra/adapters/order-service.js';
+import { SessionProfileStore } from '../../src/application/services/session-profile-store.js';
 import { config } from '../../src/infra/config.js';
 import os from 'node:os';
 import path from 'node:path';
@@ -22,11 +22,12 @@ describe('Last Mile Integration: end-to-end recommendation flow', () => {
   const profileStore = new ProfileStore(redis, path.join(tmpDir, 'profiles'));
   const profileProvider = new MockProfileProvider();
   const sessionManager = new SessionManager(path.join(tmpDir, 'sessions'));
+  const sessionProfileStore = new SessionProfileStore(redis, path.join(tmpDir, 'sessions'));
   const eventBus = new InMemoryEventBus();
   const productService = new MockProductService();
 
   const modelSlotManager = new ModelSlotManager(eventBus, () => ({
-    chat: vi.fn().mockResolvedValue('根据您的身高体重，推荐 M 码。'),
+    chat: vi.fn().mockResolvedValue({ content: '根据您的身高体重，推荐 M 码。' }),
   }));
   modelSlotManager.registerSlot('conversation', 'conversation',
     { name: 'mock', endpoint: '', modelId: 'mock', maxTokens: 100, temperature: 0.7, timeoutMs: 5000 },
@@ -41,7 +42,7 @@ describe('Last Mile Integration: end-to-end recommendation flow', () => {
     slidingWindowSize: 10,
   });
 
-  const app = buildServer(agent, profileStore, profileProvider, config, sessionManager);
+  const app = buildServer({ agent, profileStore, sessionProfileStore, profileProvider, config, sessionManager, eventBus });
 
   beforeAll(async () => {
     const profile = new UserProfileEntity('e2e-user', {
