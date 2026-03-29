@@ -9,7 +9,30 @@
 大模型的记忆管理本质是对 Context Window（Token 预算）的排兵布阵与信息密度压缩。系统摒弃了简单的“全部塞入 Prompt”的做法，采用类似 OpenClaw 的 **四层记忆架构 + 全量可审计落盘**。
 
 ### 1.1 物理排兵布阵：四层记忆架构
-在 `Agent.handleMessage()` 中，Prompt 的组装严格遵循四个物理层级：
+在 `Agent.handleMessage()` 中，Prompt 的组装严格遵循四个物理层级。大模型并不是在“读全文”，而是在读我们精心编排的记忆结构。
+
+```typescript
+// src/application/agent.ts 中 Prompt 组装的设计体现
+private buildSystemPrompt(...) {
+  // 1. Bootstrap Layer (系统基座，绝对免疫压缩)
+  const bootstrapLayer = `${roleInstruction}\n\n${profileSection}\n\n${workflowSection}\n\n${guardrailSection}`;
+
+  // 2. Conversation History Layer (受压缩的历史层)
+  const historyLayer = compressor?.formatForPrompt() ?? '';
+
+  // 3. Tool Results Layer (按需检索的工作记忆层)
+  const toolResultsLayer = `\n\n--- 动态工作记忆 ---\n${coldStartInstruction}${fewShotExamples}`;
+
+  return `${bootstrapLayer}${historyLayer}${toolResultsLayer}`;
+}
+
+// 在拼装入给大模型的 messages 数组时：
+const messages: Message[] = [
+  { role: 'system', content: systemPrompt }, // 包含了 Layer 1~3
+  ...window,                                 // 4. Current Message Layer (滑动窗口内的最新对话)
+];
+```
+
 1. **Layer 1: Bootstrap 层（系统基座，绝对免疫压缩）**
    - **定位**：Prompt 最顶端，每次会话强制加载，绝不被压缩或截断。
    - **内容**：系统的安全护栏 (Guardrails 约束) 与 用户画像核心数据 (`profile.summarizeForPrompt()`)。
@@ -68,10 +91,27 @@ interface CompressedSegment {
 2. **置信度仲裁器 (ConfidenceArbitrator)**：
    - 不同的底层数据有其“基准置信度”（例如：购买过 5 单以上置信度 0.9，1 单置信度 0.6）。
    - 仲裁器会将**“当前画像的置信度 (existingConfidence)”**与**“传入信号的置信度 (incoming.confidence)”**进行数学比对：
-     - 若信号类型为 `explicit_override`（如“我就要 L 码”），则**直接覆盖 (accept)**，置信度设为 1.0。
-     - 若 `incoming.confidence > existing * 1.2`，表示新信号显著强于历史画像，做出**接受 (accept)**决策。
-     - 若 `incoming.confidence > existing * 0.8`，表示两者强度接近，做出**合并 (merge)**决策（如取平均值或交集）。
-     - 否则，视为新信号属于随意发散，做出**忽略 (ignore)**决策，继续使用原画像。
+
+```typescript
+// src/application/services/profile-engine/confidence-arbitrator.ts
+export function arbitrate(existingConfidence: number, incoming: PreferenceSignal): ArbitrationResult {
+  // 1. 用户明确指定 (最高优先级)，直接覆盖
+  if (incoming.type === 'explicit_override') {
+    return { decision: 'accept', effectiveConfidence: 1.0, reason: '用户明确指定' };
+  }
+  // 2. 新信号显著强于已有画像 (> 1.2 倍)，接受新信号
+  if (incoming.confidence > existingConfidence * 1.2) {
+    return { decision: 'accept', effectiveConfidence: incoming.confidence };
+  }
+  // 3. 信号强度接近 (> 0.8 倍)，采取数值融合
+  if (incoming.confidence > existingConfidence * 0.8) {
+    return { decision: 'merge', effectiveConfidence: (existingConfidence + incoming.confidence) / 2 };
+  }
+  // 4. 新信号弱于已有画像，忽略口头表达，坚持历史数据
+  return { decision: 'ignore', effectiveConfidence: existingConfidence };
+}
+```
+
    - **闭环强化**：如果用户的当次采纳被事后下单印证，其对应维度的置信度会被 `adjustConfidence` 奖励 (`+0.1`)；若遭到拒绝则惩罚 (`-0.1`)。
 
 ### 2.3 冷启动策略 (Cold Start Manager)
@@ -85,16 +125,86 @@ interface CompressedSegment {
 
 ### 3.1 度量采集层 (Trace & Measure)
 - **隐式与显式触发**：在 `Agent` 中，如果检测到用户直接覆盖了推荐 (`spec_rejected`)，会当场打包当前画像、意图和匹配覆盖率形成 `BadCaseTrace`，并经 `BadCaseCollector` 记录；同时前端 UI 的点踩 (`dislike`) 接口也会通过读取最新 Trace 追加 BadCase。
+
+```typescript
+// src/application/agent.ts (采集埋点埋入在对话主循环中)
+if (outcome === 'spec_rejected' && this.deps.badcaseCollector) {
+  const trace = {
+    promptVersion: 'current',
+    profileSnapshot: Object.assign({}, profile),
+    profileCompleteness: profile.getCompleteness(),
+    coldStartStage: profile.getColdStartStage(),
+    specMatchResult: matchResultDetail, // 记录覆盖率算法计算的每一项得分
+    intentResult,
+  };
+  const bc = this.deps.badcaseCollector.collect('spec_override', ..., trace);
+  // 通过 EventBus 抛出事件，唤醒下游分析管线
+  eventBus.publish(createEvent('badcase:detected', { badcaseId: bc.id }, sessionId));
+}
+```
+
 - **量化评估**：`SpecRecommendationEvaluator` 统计推荐总数、首次接受率、覆盖率算法命中率等四维指标，指标下滑超过 5% 时亦可触发飞轮。
 - **数据蒸馏**：`DataDistillationSubscriber` 对落盘数据进行 PII 脱敏处理，为后续微调 (SFT) 提供高质量对齐数据。
 
 ### 3.2 诊断分析层 (Analyze)
 一旦 `BadCaseCollector` 累积满批次，触发 `badcase:detected` 事件，`AutoPromptSubscriber` 便开始流水线作业：
-- **多维归因 (`diagnoseFailureModes`)**：结合当时的 Trace 详情诊断病因。例如，若画像完整度低于 0.3，则归因为 `cold_start_insufficient`；若是覆盖率极低但强行匹配错误，则归因为 `low_coverage_match`。
+- **多维归因 (`diagnoseFailureModes`)**：结合当时的 Trace 详情诊断病因。
+
+```typescript
+// src/application/services/data-flywheel/badcase-collector.ts
+export function diagnoseFailureModes(trace: BadCaseTrace, signal: BadCaseSignal): FailureMode[] {
+  const modes: FailureMode[] = [];
+  // 1. 画像信息太少，推荐失败属于冷启动问题
+  if (trace.profileCompleteness < 0.3) {
+    modes.push('cold_start_insufficient');
+  }
+  // 2. 覆盖率得分太低，属于特征权重或匹配范围问题
+  if (trace.specMatchResult.attempted && trace.specMatchResult.topCandidates[0]?.coverage < 0.5) {
+    modes.push('low_coverage_match');
+  }
+  // 3. 模型兜底生成的推荐遭拒绝，属于提示词或模型能力问题
+  if (trace.specMatchResult.fallbackToModel && signal === 'user_rejection') {
+    modes.push('model_fallback_quality');
+  }
+  return modes.length > 0 ? modes : ['unknown'];
+}
+```
+
 - **聚类分析 (`BadCaseAnalyzer`)**：将这批 BadCase 按 `FailureMode` 进行聚类，找出当前的“Top Cluster (首要问题)”。
 
 ### 3.3 调优反馈层 (Improve)
 - **参数推荐 (`TuningAdvisor`)**：针对 Top Cluster 给出参数级调优建议。例如，若 `presentation_issue` (推荐对了但用户不接受) 占比高，说明解释话术或信心不足，Advisor 会建议将 `MIN_RECOMMEND_CONFIDENCE` 阈值调高 0.1。
+
+```typescript
+// src/application/services/data-flywheel/tuning-advisor.ts
+export class TuningAdvisor {
+  recommend(topCluster: FailureModeCluster): TuningRecommendation | null {
+    const { mode, percentage } = topCluster;
+    const confidence = percentage > 30 ? 'high' : percentage > 15 ? 'medium' : 'low';
+
+    switch (mode) {
+      case 'cold_start_insufficient':
+        return {
+          knob: 'COMPLETENESS_THRESHOLDS.warm',
+          currentValue: 0.3,
+          suggestedValue: 0.2, // 建议降低冷启动阈值边界
+          reason: `${percentage}% 的 BadCase 来自冷启动用户，建议放宽推荐门槛`,
+          confidence,
+        };
+      case 'presentation_issue':
+        const current = this.knobs['MIN_RECOMMEND_CONFIDENCE'].getValue();
+        return {
+          knob: 'MIN_RECOMMEND_CONFIDENCE',
+          suggestedValue: Math.min(0.9, current + 0.1), // 建议调高保守度
+          reason: `用户多次拒绝正确的推荐结论，应提升置信度要求或修改话术`,
+          confidence,
+        };
+      // ...其他诊断分支
+    }
+  }
+}
+```
+
 - **热更新生效 (`ConfigWatchSubscriber`)**：Advisor 给出的高置信度数值型/布尔型建议，会由 `ConfigWatchSubscriber` 直接应用并广播到全局，各相关服务（如推理引擎、规则匹配引擎）即刻采用新参数，完成飞轮运转。
 
 ---
