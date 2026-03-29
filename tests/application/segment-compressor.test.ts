@@ -36,11 +36,12 @@ describe('SegmentCompressor', () => {
     expect(segments).toHaveLength(1);
     expect(segments[0].segmentIndex).toBe(0);
     expect(segments[0].turnRange).toEqual([0, 2]);
-    expect(segments[0].intent).toBe('product_consult');
+    expect(segments[0].factSlots.intent).toBe('product_consult');
     expect(segments[0].summary).toContain('p101');
+    expect(segments[0].tokenUsage).toBeGreaterThan(0);
   });
 
-  it('extracts key facts from messages', async () => {
+  it('extracts key facts from messages into factSlots', async () => {
     const messages = [
       msg('user', '帮我老公看看，他身高178cm'),
       msg('assistant', '好的，为您老公推荐'),
@@ -51,10 +52,9 @@ describe('SegmentCompressor', () => {
 
     const segments = compressor.getSegments();
     expect(segments).toHaveLength(1);
-    expect(segments[0].keyFacts).toContain('角色切换:male');
-    expect(segments[0].keyFacts).toContain('身高:178');
-    expect(segments[0].keyFacts).toContain('体重:155');
-    expect(segments[0].keyFacts).toContain('商品:p201');
+    expect(segments[0].factSlots.who).toBe('老公/男友');
+    expect(segments[0].factSlots.constraints).toContain('身高:178');
+    expect(segments[0].factSlots.constraints).toContain('体重:155');
   });
 
   it('forces segment boundary on role switch', async () => {
@@ -108,7 +108,8 @@ describe('SegmentCompressor', () => {
     const prompt = compressor.formatForPrompt();
     expect(prompt).toContain('[历史对话摘要]');
     expect(prompt).toContain('第1-3轮');
-    expect(prompt).toContain('角色切换:male');
+    expect(prompt).toContain('老公/男友');
+    expect(prompt).toContain('身高:178');
   });
 
   it('reset clears all state', async () => {
@@ -128,7 +129,9 @@ describe('SegmentCompressor', () => {
   describe('with LLM client', () => {
     it('uses LLM for compression when available', async () => {
       const mockLLM = {
-        chat: vi.fn().mockResolvedValue({ content: '用户咨询了羽绒服p101的尺码推荐' }),
+        chat: vi.fn().mockResolvedValue({ 
+          content: '```json\n{"summary": "用户咨询了羽绒服p101的尺码推荐", "factSlots": {"who": "自己", "intent": "product_consult", "constraints": [], "decisions": [], "open_questions": []}}\n```' 
+        }),
       };
       const llmCompressor = new SegmentCompressor({ segmentSize: 3, llmClient: mockLLM });
 

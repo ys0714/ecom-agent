@@ -295,7 +295,13 @@ export interface AgentEvent {
 export interface CompressedSegment {
   segmentIndex: number;
   turnRange: [number, number];
+  tokenUsage: number;
   summary: string;
-  keyFacts: string[];
-  intent: WorkflowType;
+  factSlots: {
+    who: string;
+    intent: WorkflowType;
+    constraints: string[];
+    decisions: string[];
+    open_questions: string[];
+  };
 }

@@ -236,28 +236,39 @@ function arbitrate(existing: number, incoming: PreferenceSignal): 'accept' | 'me
   - **滑动窗口**：最近 K 轮对话保留完整消息文本。
   - **分段压缩（Compaction）**：由 `SegmentCompressor` 处理，溢出滑动窗口的历史消息会被压缩为精简的结构化摘要，以高信息密度取代原始 Token。
 
-**压缩段数据结构与索引**：
+**压缩段数据结构与索引 (OpenClaw 化结构)**：
 ```typescript
 interface CompressedSegment {
   segmentIndex: number;
   turnRange: [number, number];  // 核心指针：JSONL 会话文件中的行号范围
-  summary: string;              // "用户为老公选购夹克，身高178体重155斤"
-  keyFacts: string[];           // ["角色切换:male", "身高:178", "体重:155"]
-  intent: WorkflowType;
+  tokenUsage: number;           // 压缩后的 Token 估算消耗
+  summary: string;              // 简短自然语言摘要
+  factSlots: {                  // 事实槽位化摘要（减少信息丢失）
+    who: string;                // 交互主体 (如 "给老公买")
+    intent: WorkflowType;       // 核心意图
+    constraints: string[];      // 明确的偏好和约束 (如 ["宽松", "不要黑色"])
+    decisions: string[];        // 已达成的决策 (如 ["选了M码", "确认退货"])
+    open_questions: string[];   // 待解决的问题
+  };
 }
 ```
-*注：这里的摘要不仅是总结，更是**索引目录**。`turnRange` 指针使得大模型在需要时能够准确找回原始细节。*
+*注：这里的摘要从“纯自然语言”升级为“事实槽位化摘要+动态压缩”。系统根据当前 Context 预算决定保留原文还是仅保留事实槽位。`turnRange` 核心指针使得大模型在需要时能通过 Tool 调用无损回捞原文。*
 
 **第三层：Tool Results（按需检索的工作记忆层）**
 - **定位**：仅在当前轮次需要时动态注入的外部知识，用完即抛，不污染长期上下文。
 - **内容**：
   - **外部事实**：如 `ProductService` 刚刚查到的“商品 p101 的详细规格和材质”。
-  - **Few-shot RAG**：通过 `ChromaDB` 根据当前问题动态召回的优秀历史回复案例。
-  - **历史原文检索（规划中）**：大模型阅读第二层的“历史摘要”后，如果认为缺乏细节，可通过 Tool Call 传入 `turnRange`，系统将原始对话读取并注入到本层，实现**无损细节回溯**。
+  - **Few-shot RAG**：通过 `ChromaDB` 动态召回的历史优秀回复案例。
+  - **历史原文检索 (`recall_history`)**：大模型阅读第二层的“历史摘要”后，如果认为缺乏细节，可通过 Tool Call 传入 `turnRange`，系统将原始对话读取并注入到本层，实现**无损细节回溯**。
 
 **第四层：Current Message（当前消息层）**
 - **定位**：Prompt 的最底部，大模型注意力机制最集中的区域。
 - **内容**：用户刚刚发送的最新输入。
+
+**全量会话保留策略 (Auditable Session Retention)**：
+除了四层上下文管理大模型的“工作记忆”，系统还在底层维持一个不可变的 **全量事件日志 (Event-Sourced JSONL Log)**：
+- 每一次用户的输入 (`message:user`)、大模型的输出 (`message:assistant`)、工具调用 (`tool:call`/`tool:result`) 均作为离散事件追加写入。
+- **检测与评估**：通过 `SessionLogSubscriber` 保留结构化数据，提供 100% 完整的对话和推理 Trace。大模型的上下文窗口可以任意压缩和丢弃，但管理员和 Eval 脚本随时可以通过离线 JSONL 解析或 API 回放整个会话的每个字节。
 
 **Prompt 组装伪代码示例**：
 

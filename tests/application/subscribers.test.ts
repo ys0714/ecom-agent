@@ -95,6 +95,45 @@ describe('SessionLogSubscriber', () => {
     expect(JSON.parse(lines[0]).type).toBe('message:user');
     expect(JSON.parse(lines[1]).type).toBe('message:assistant');
   });
+
+  it('compacts turn:trace events to remove redundant data', async () => {
+    const tmpDir = path.join(os.tmpdir(), `session-log-compact-${Date.now()}`);
+    const sub = new SessionLogSubscriber(tmpDir);
+    const bus = new InMemoryEventBus();
+    bus.register(sub);
+
+    const tracePayload = {
+      userMessage: 'hello',
+      assistantMessage: 'hi',
+      intent: 'general',
+      latencyMs: 150,
+      messagesForDistillation: [
+        { role: 'user', content: 'hello', timestamp: '2023-01-01T00:00:00Z' },
+        { role: 'assistant', content: 'hi', timestamp: '2023-01-01T00:00:01Z' },
+        { role: 'tool', content: '...', timestamp: '2023-01-01T00:00:02Z' }
+      ]
+    };
+
+    bus.publish(createEvent('turn:trace', tracePayload, 'sess_2'));
+    await new Promise((r) => setTimeout(r, 100));
+
+    const content = await fs.readFile(path.join(tmpDir, 'sess_2.jsonl'), 'utf-8');
+    const writtenEvent = JSON.parse(content.trim());
+    
+    expect(writtenEvent.type).toBe('turn:trace');
+    expect(writtenEvent.payload.userMessage).toBeUndefined();
+    expect(writtenEvent.payload.assistantMessage).toBeUndefined();
+    expect(writtenEvent.payload.intent).toBe('general');
+    expect(writtenEvent.payload.latencyMs).toBe(150);
+    
+    expect(writtenEvent.payload.messagesForDistillation).toBeUndefined();
+    expect(writtenEvent.payload.distillationSummary).toBeDefined();
+    expect(writtenEvent.payload.distillationSummary.messageCount).toBe(3);
+    expect(writtenEvent.payload.distillationSummary.toolMessageCount).toBe(1);
+    expect(writtenEvent.payload.distillationSummary.roleCount.user).toBe(1);
+    expect(writtenEvent.payload.distillationSummary.roleCount.assistant).toBe(1);
+    expect(writtenEvent.payload.distillationSummary.totalChars).toBe(10); // 'hello'.length + 'hi'.length + '...'.length
+  });
 });
 
 describe('MetricsSubscriber', () => {

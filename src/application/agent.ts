@@ -101,9 +101,13 @@ export class Agent {
       const corrections = prefSignal.value;
       const role = activeRole ?? profile.spec.defaultRole;
       const delta: Record<string, unknown> = { role };
-      if (corrections.height) delta.height = [corrections.height, corrections.height] as [number, number];
-      if (corrections.weight) delta.weight = [corrections.weight, corrections.weight] as [number, number];
-      profile.applyDelta({ dimensionId: 'specPreference', delta, source: 'conversation', timestamp: new Date().toISOString() });
+      const normalizedHeight = this.coerceFiniteNumber(corrections.height);
+      const normalizedWeight = this.coerceFiniteNumber(corrections.weight);
+      if (normalizedHeight !== null) delta.height = [normalizedHeight, normalizedHeight] as [number, number];
+      if (normalizedWeight !== null) delta.weight = [normalizedWeight, normalizedWeight] as [number, number];
+      if (normalizedHeight !== null || normalizedWeight !== null) {
+        profile.applyDelta({ dimensionId: 'specPreference', delta, source: 'conversation', timestamp: new Date().toISOString() });
+      }
     }
 
     const coldAction = coldStartManager.getAction(profile, userId);
@@ -378,4 +382,21 @@ export class Agent {
     }
     return null;
   }
+  
+  private coerceFiniteNumber(value: unknown): number | null {
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : null;
+    }
+    if (typeof value === 'string') {
+      const m = value.match(/-?\d+(?:\.\d+)?/);
+      if (!m) return null;
+      const n = Number.parseFloat(m[0]);
+      return Number.isFinite(n) ? n : null;
+    }
+    if (Array.isArray(value) && value.length > 0) {
+      return this.coerceFiniteNumber(value[0]);
+    }
+    return null;
+  }
+
 }
