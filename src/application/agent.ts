@@ -74,16 +74,18 @@ export class Agent {
   async handleMessage(
     userId: string,
     sessionId: string,
-    userText: string,
+    userTextParam: string,
     conversationHistory: Message[],
     profile: UserProfileEntity,
   ): Promise<{ reply: string; intent: WorkflowType; recommendation: SpecRecommendation | null; debug: Record<string, unknown> }> {
     const { eventBus, modelSlotManager, intentRouter, coldStartManager } = this.deps;
     const compressor = this.getCompressor(sessionId);
 
-    const userMsg: Message = { role: 'user', content: userText, timestamp: new Date().toISOString() };
+    const userMsg: Message = { role: 'user', content: userTextParam, timestamp: new Date().toISOString() };
     conversationHistory.push(userMsg);
-    eventBus.publish(createEvent('message:user', { content: userText }, sessionId));
+    eventBus.publish(createEvent('message:user', { content: userTextParam }, sessionId));
+
+    let userText = userTextParam;
 
     const intentResult = await intentRouter.classify(userMsg);
 
@@ -99,9 +101,87 @@ export class Agent {
     const existingConfidence = profile.meta.totalOrders >= 5 ? 0.9 : profile.meta.totalOrders >= 1 ? 0.6 : 0.1;
     const arbitrationResult = arbitrate(existingConfidence, prefSignal);
 
+    // Attempt to extract activeRole from user text
+    if (!activeRole && this.deps.productService) {
+      const productForDetection = await this.findProduct(userText);
+      if (productForDetection) {
+        const audiences = new Set(productForDetection.specs.map(s => s.targetAudience));
+        if (audiences.size === 1) {
+          const audience = Array.from(audiences)[0];
+          if (audience === 'child') activeRole = 'child';
+          else if (audience === 'adult_male') activeRole = 'male';
+          else if (audience === 'adult_female') activeRole = 'female';
+        }
+      }
+    }
+
+    // Explicitly check for role switch when we are in a product context and it's a child product,
+    // but the system hasn't caught the role switch.
+    if (!activeRole && this.deps.productService) {
+      let currentOrPastProduct = await this.findProduct(userText);
+      if (!currentOrPastProduct && conversationHistory.length > 0) {
+        for (let i = conversationHistory.length - 1; i >= 0; i--) {
+          const msg = conversationHistory[i];
+          if (msg.role === 'user') {
+            currentOrPastProduct = await this.findProduct(msg.content);
+            if (currentOrPastProduct) break;
+          }
+        }
+      }
+      if (currentOrPastProduct) {
+        const audiences = new Set(currentOrPastProduct.specs.map(s => s.targetAudience));
+        if (audiences.size === 1 && Array.from(audiences)[0] === 'child') {
+          activeRole = 'child';
+        }
+      }
+    }
+
+    // Force re-evaluation of Intent and role if it's a profile correction
+    // Sometimes the IntentRouter thinks "身高130cm，体重50斤" is just "general" or misses context
+    if (prefSignal.type === 'profile_correction' && conversationHistory.length > 0) {
+      let pastProduct = null;
+      for (let i = conversationHistory.length - 1; i >= 0; i--) {
+        const msg = conversationHistory[i];
+        if (msg.role === 'user') {
+          pastProduct = await this.findProduct(msg.content);
+          if (pastProduct) {
+            break;
+          }
+        }
+      }
+      
+      if (pastProduct) {
+        // If we were just talking about a product, this profile correction is likely for product consult
+        if (intentResult.intent === 'general') {
+          intentResult.intent = 'product_consult';
+        }
+        
+        // Ensure activeRole is set correctly based on the product
+        if (!activeRole) {
+          const audiences = new Set(pastProduct.specs.map(s => s.targetAudience));
+          if (audiences.size === 1) {
+            const audience = Array.from(audiences)[0];
+            if (audience === 'child') activeRole = 'child';
+            else if (audience === 'adult_male') activeRole = 'male';
+            else if (audience === 'adult_female') activeRole = 'female';
+          }
+        }
+        
+        // Let the system know what product we are consulting about so the rest of the flow works
+        if (!userText.includes(pastProduct.productId) && !userText.includes(pastProduct.productName)) {
+           userText = `${userText} (针对商品${pastProduct.productId})`;
+        }
+      }
+    }
+
     if (prefSignal.type === 'profile_correction' && arbitrationResult.decision !== 'ignore') {
       const corrections = prefSignal.value;
-      const role = activeRole ?? profile.spec.defaultRole;
+      
+      // If we know the product is for child, but rule detector didn't catch role_switch, update the delta role
+      // This helps apply the correction to the correct child profile.
+      // Additionally, make sure to force role to activeRole if it was inferred
+      let role = activeRole ?? profile.spec.defaultRole;
+      
       const delta: Record<string, unknown> = { role };
       const normalizedHeight = this.coerceFiniteNumber(corrections.height);
       const normalizedWeight = this.coerceFiniteNumber(corrections.weight);
@@ -269,7 +349,7 @@ export class Agent {
       if (outcome === 'spec_rejected' && this.deps.badcaseCollector) {
         const trace = {
           promptVersion: 'current',
-          profileSnapshot: Object.assign({}, profile),
+          profileSnapshot: Object.assign({}, profile.spec),
           profileCompleteness: profile.getCompleteness(),
           coldStartStage: profile.getColdStartStage(),
           specMatchResult: matchResultDetail || { attempted: false, topCandidates: [], selectedSpec: null, fallbackToModel: false },
