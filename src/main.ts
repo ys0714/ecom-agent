@@ -20,6 +20,7 @@ import { TuningAdvisor } from './application/services/data-flywheel/tuning-advis
 import { SpecRecommendationEvaluator } from './application/services/data-flywheel/evaluator.js';
 import { SegmentCompressor } from './application/services/context/segment-compressor.js';
 import { DataDistillationSubscriber } from './application/subscribers/data-distillation-subscriber.js';
+import { OpenTelemetrySubscriber } from './application/subscribers/opentelemetry-subscriber.js';
 import { buildServer } from './presentation/server.js';
 import { MockProfileProvider } from './infra/adapters/mock-profile-provider.js';
 import { vectorStore } from './infra/adapters/vector-store.js';
@@ -109,11 +110,13 @@ const sessionLogSub = new SessionLogSubscriber(config.paths.sessions);
 const dataDistillationSub = new DataDistillationSubscriber(config.paths.dataDir);
 const metricsSub = new MetricsSubscriber();
 const alertSub = new AlertSubscriber();
+const otelSub = new OpenTelemetrySubscriber();
 
 eventBus.register(sessionLogSub);
 eventBus.register(dataDistillationSub);
 eventBus.register(metricsSub);
 eventBus.register(alertSub);
+eventBus.register(otelSub);
 eventBus.register(configWatch);
 eventBus.register(autoPrompt);
 
