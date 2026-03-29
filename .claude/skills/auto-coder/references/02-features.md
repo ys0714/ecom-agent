@@ -149,40 +149,50 @@ function arbitrate(existing: number, incoming: PreferenceSignal): 'accept' | 'me
 interface CompressedSegment {
   segmentIndex: number;
   turnRange: [number, number];  // 核心指针：JSONL 会话文件中的行号范围
-  summary: string;              // "用户为老公选购夹克，身高178体重155斤"
-  keyFacts: string[];           // ["角色切换:male", "身高:178", "体重:155"]
-  intent: WorkflowType;
+  tokenUsage: number;           // 压缩后的 Token 估算消耗
+  summary: string;              // 简短自然语言摘要
+  factSlots: {                  // 事实槽位化摘要（减少信息丢失）
+    who: string;                // 交互主体 (如 "给老公买")
+    intent: WorkflowType;       // 核心意图
+    constraints: string[];      // 明确的偏好和约束 (如 ["宽松", "不要黑色"])
+    decisions: string[];        // 已达成的决策 (如 ["选了M码", "确认退货"])
+    open_questions: string[];   // 待解决的问题
+  };
 }
 ```
-*注：这里的摘要不仅是总结，更是**索引目录**。`turnRange` 指针使得大模型在需要时能够准确找回原始细节。*
+*注：这里的摘要从“纯自然语言”升级为“事实槽位化摘要+动态压缩”。系统根据当前 Context 预算决定保留原文还是仅保留事实槽位。`turnRange` 核心指针使得大模型在需要时能通过 Tool 调用无损回捞原文。*
 
 **第三层：Tool Results（按需检索的工作记忆层）**
 - **定位**：仅在当前轮次需要时动态注入的外部知识，用完即抛，不污染长期上下文。
 - **内容**：
   - **外部事实**：如 `ProductService` 刚刚查到的“商品 p101 的详细规格和材质”。
-  - **Few-shot RAG**：通过 `ChromaDB` 根据当前问题动态召回的优秀历史回复案例。
-  - **历史原文检索（规划中）**：大模型阅读第二层的“历史摘要”后，如果认为缺乏细节，可通过 Tool Call 传入 `turnRange`，系统将原始对话读取并注入到本层，实现**无损细节回溯**。
+  - **Few-shot RAG**：通过 `ChromaDB` 动态召回的历史优秀回复案例。
+  - **历史原文检索 (`recall_history`)**：大模型阅读第二层的“历史摘要”后，如果认为缺乏细节，可通过 Tool Call 传入 `turnRange`，系统将原始对话读取并注入到本层，实现**无损细节回溯**。
 
 **第四层：Current Message（当前消息层）**
 - **定位**：Prompt 的最底部，大模型注意力机制最集中的区域。
 - **内容**：用户刚刚发送的最新输入。
 
+**全量会话保留策略 (Auditable Session Retention)**：
+除了四层上下文管理大模型的“工作记忆”，系统还在底层维持一个不可变的 **全量事件日志 (Event-Sourced JSONL Log)**：
+- 每一次用户的输入 (`message:user`)、大模型的输出 (`message:assistant`)、工具调用 (`tool:call`/`tool:result`) 均作为离散事件追加写入。
+- **检测与评估**：通过 `SessionLogSubscriber` 保留结构化数据，提供 100% 完整的对话和推理 Trace。大模型的上下文窗口可以任意压缩和丢弃，但管理员和 Eval 脚本随时可以通过离线 JSONL 解析或 API 回放整个会话的每个字节。
+
 **Prompt 组装伪代码示例**：
 
 ```typescript
 const messages: Message[] = [
-  // 1. Bootstrap Layer (免疫压缩)
-  { role: 'system', content: `<SOUL>${GUARDRAILS}</SOUL>\n<USER_PROFILE>${profile.summarize()}</USER_PROFILE>` },
+  { role: 'system', content: [
+    // 1. Bootstrap Layer (免疫压缩)
+    `<SOUL>${GUARDRAILS}</SOUL>\n<USER_PROFILE>${profile.summarize()}</USER_PROFILE>`,
+    // 2. Conversation History Layer
+    compressor.getSummaryForPrompt(), // 早期对话压缩为 factSlots
+    // 3. Tool Results Layer (按需检索的工作记忆)
+    `<PRODUCT_INFO>${productDetail}</PRODUCT_INFO>\n<FEW_SHOT>${fewShotExamples}</FEW_SHOT>`
+  ].join('\n\n') },
   
-  // 2. Conversation History Layer
-  ...compressor.getSummaryAsMessages(), // 早期对话摘要
-  ...slidingWindow,                      // 最近 K 轮完整对话
-  
-  // 3. Tool Results Layer (按需检索的工作记忆)
-  { role: 'system', content: `<PRODUCT_INFO>${productDetail}</PRODUCT_INFO>\n<FEW_SHOT>${fewShotExamples}</FEW_SHOT>` },
-  
-  // 4. Current Message Layer
-  { role: 'user', content: userText }
+  // 4. Current Message Window (滑动窗口)
+  ...slidingWindow // 最近 K 轮完整对话（包含当前 userText）
 ];
 ```
 
@@ -232,18 +242,19 @@ interface BadCaseTrace {
 }
 ```
 
-#### 2.5.2 自动评估器（Measure 层）
+#### 2.5.2 自动评估器（Measure 层：LLM-as-a-Judge）
 
 飞轮的核心前提是**能自动打分**。系统定义 `SpecRecommendationEvaluator`，持续计算推荐质量指标：
 
-| 指标 | 计算方式 | 目标 |
-|------|---------|------|
-| **推荐准确率** | 用户最终下单规格 === 系统推荐规格 | ≥ 70% |
-| **首次接受率** | 用户未修改推荐规格直接下单 / 总推荐次数 | ≥ 60% |
-| **覆盖率匹配有解率** | 覆盖率算法命中 / 总推荐请求 | ≥ 80% |
-| **模型 fallback 率** | 走了模型推理 / 总推荐请求 | ≤ 20% |
+| 维度 | 指标 | 计算方式 / 数据源 | 目标 |
+|------|------|---------|------|
+| **硬规则** | 推荐准确率 | 用户最终下单规格 === 系统推荐规格 | ≥ 70% |
+| **硬规则** | 首次接受率 | 用户未修改推荐规格直接下单 / 总推荐次数 | ≥ 60% |
+| **硬规则** | 模型 fallback 率 | 走了模型推理 / 总推荐请求 | ≤ 20% |
+| **软质量** | 语义有用性 (Helpfulness) | **LLM-as-a-Judge** (抽样 10% 会话交由大参数模型评分) | ≥ 4.0/5.0 |
+| **软质量** | 护栏合规度 (Safety) | **LLM-as-a-Judge** (抽样大模型评估语气及承诺边界) | ≥ 4.8/5.0 |
 
-评估器每日自动计算并输出趋势，指标下降时触发飞轮分析。
+评估器不仅计算客观的接受率，还会**通过定时批处理任务调用大模型 API**，对落盘的历史 Session 进行深度的软质量打分。评分低于阈值时，自动触发飞轮分析。
 
 #### 2.5.3 多维根因归因（Analyze 层）
 
@@ -258,61 +269,58 @@ interface BadCaseTrace {
 | `presentation_issue` | 推荐了正确规格但用户拒绝（话术问题） | System Prompt 话术 |
 | `profile_stale` | 画像最后更新 > 30 天 | 画像更新频率 |
 
-#### 2.5.4 可调旋钮 + 参数优化（Improve 层）
+#### 2.5.4 可调旋钮与动态 Prompt (Improve 层)
 
-飞轮的 Improve 不是"让 72B 写新 Prompt"，而是**调具体的参数旋钮**，每个旋钮有明确的调优方向：
+飞轮的 Improve 主要通过两大维度生效：**调优业务参数** 与 **动态更新 Few-shot Prompt**。
 
-| 旋钮 | 位置 | 调优方向 | 触发条件 |
+| 旋钮 / 动态注入 | 位置 / 机制 | 调优方向 | 触发条件 |
 |------|------|---------|---------|
 | `FEATURE_PRIORITY` | `spec-inference.ts` | 调整 height/weight/bust 等的排序权重 | `low_coverage_match` 频率 > 20% |
 | `MIN_RECOMMEND_CONFIDENCE` | Agent 推荐逻辑 | 调高=保守推荐，调低=激进推荐 | `presentation_issue` 频率 > 15% |
 | `COMPLETENESS_THRESHOLDS` | `user-profile.entity.ts` | 调整 cold/warm/hot 边界 | `cold_start_insufficient` 频率 > 30% |
-| `SLIDING_WINDOW_SIZE` | `config.ts` | 增大=更多上下文但更贵 | `context_lost` 相关 badcase |
-| **System Prompt 话术** | `agent.ts` `buildSystemPrompt()` | 修改推荐呈现方式 | `presentation_issue` 显著时 |
+| **动态 Few-Shot RAG** | `Agent.buildSystemPrompt()` | 将 LLM-as-a-Judge 评出的优质回复存入 ChromaDB，并在相近场景下作为示例实时召回 | 解决单纯参数调优无法覆盖的“话术与语气”问题 |
 
-参数调优通过 RuntimeConfig 热更新生效，无需重启服务。
+参数调优通过 RuntimeConfig 热更新生效；动态 Few-shot 通过在 ChromaDB 中 Upsert 数据自动在下次请求中生效。
 
-#### 2.5.5 A/B 验证 + 回流
+#### 2.5.5 A/B 验证 + 回流 (闭环测试)
 
 ```
-评估器检测到指标下降
+评估器检测到指标下降或捕获优质案例
         ↓
-  ① 根因归因（按 Trace 上下文自动分类）
+  ① 根因归因（按 Trace 上下文分类）/ LLM 优质判定
         ↓
-  ② 定位最大失败模式 → 确定对应旋钮
+  ② 定位最大失败模式 → 确定对应旋钮 / 提取优质对话对
         ↓
-  ③ 生成调优方案（参数值变更 or Prompt 修改）
+  ③ 生成调优方案（参数值变更） / 写入向量库供 Few-shot RAG
         ↓
-  ④ A/B 验证（灰度 10%，Z-test，最小样本 ≥1000）
-     成功定义：spec_accepted（用户接受推荐规格）
-              session_purchase（本次会话有购买）
+  ④ 严格 A/B 验证（针对新参数或加入 Few-shot 的新 Prompt，灰度 10% 流量）
+     成功定义：LLM-Judge 评分显著上升，且 spec_accepted 提升
         ↓
-  ⑤ promote → 参数自动全量生效（RuntimeConfig 更新）
-     rollback → 回退参数，记录失败原因
+  ⑤ promote → 全量生效
+     rollback → 撤销 Few-shot 或回退参数，记录失败原因
         ↓
   ⑥ 评估器重新打分 → 循环
 ```
 
 **触发机制**：
-- **指标驱动**：评估器检测到推荐准确率周环比下降 > 5% 时自动触发
-- **定时触发**：每周强制运行一次飞轮分析，即使指标稳定
-- **手动触发**：`POST /admin/flywheel/trigger`
-- **冷启动过滤**：`coldStartStage === 'cold'` 的用户产生的 BadCase 不进入飞轮
+- **隐式信号触发**：当 `Agent` 识别到用户的拒绝偏好 (`explicit_override`) 时发出 `badcase:detected` 事件。
+- **显式信号触发**：在 UI 侧新增反馈接口（点赞/点踩），点踩时记录 `user_rejection` 信号。
+- **定时触发**：每天通过 LLM-as-a-Judge 对全量/抽样日志进行打分，高分进 Few-shot 池，低分进 Badcase 池。
+- **冷启动过滤**：`coldStartStage === 'cold'` 的用户产生的 BadCase 不计入。
 
-#### 2.5.6 飞轮架构演进与最佳实践 (基于开源社区调研)
+#### 2.5.6 飞轮架构演进与可观测性基建 (基于 Langfuse)
 
-> 详细调研见 `references/data-flywheel-best-practices.md`。
+系统采用业界标准的开源 LLMOps 工具链构建可观测性底座：
 
-基于开源社区与业界（如 NVIDIA Data Flywheel、电商 AIGQ）的最新最佳实践，系统在数据飞轮架构上引入以下核心决策：
-
-1. **动态 Few-shot 飞轮 (Prompt 层)**：
-   - 引入轻量级本地向量存储（如 ChromaDB）管理优质 Case。将线上表现差的 Bad Case 修正后存入向量库，在后续推理时通过 RAG 动态召回作为 System Prompt 的 Few-shot 示例，实现免微调的快速系统修复。
-2. **合成数据冷启动 (Synthetic Data)**：
-   - 针对系统初期缺乏真实交互数据的问题，预先通过脚本或大模型生成一批典型的电商客服对话与 Bad Case，以此转动第一波“动态 Few-shot 飞轮”。
+1. **统一的 OTel 遥测与 Langfuse 接入**：
+   - 彻底废弃非标的内部跟踪展示面板，引入标准的 OpenTelemetry LLM 语义。
+   - `OpenTelemetrySubscriber` 将运行时的 Span（包括耗时、Prompt、Token消耗、模型路由）直接导出至自托管的 **Langfuse** 或 **Phoenix** 容器中，实现工业级面板与成本追踪。
+2. **动态 Few-shot 飞轮 (Prompt 层)**：
+   - 通过 LLM-Judge 结合 Langfuse 数据选出表现优异的对话。将其作为黄金示例存入本地向量库，并在后续推理时 RAG 召回，低成本实现行为修正，必须配合 A/B 测试验证其对留存和转化的提升。
 3. **混合反馈信号采集 (UI + 业务层)**：
-   - 闭环反馈的触发不仅依赖**隐式行为**（如用户修改尺码、发生退单），同时在前端 UI 增加**显式评价**（点赞/踩），两者结合作为系统的强化/惩罚信号。
-4. **标准化数据资产落盘 (模型层储备)**：
-   - 采用标准 JSONL 格式（兼容 OpenAI 格式）落盘所有交互的 Trace 上下文，为未来的模型蒸馏（如微调小尺寸模型替代大模型）夯实数据基建。
+   - 将用户前端的显式点赞/点踩，通过 Langfuse SDK 关联到对应 Session Trace，实现闭环。
+4. **标准化数据资产落盘 (模型蒸馏储备)**：
+   - 所有原始交互数据以 JSONL 离线落盘，为未来从 72B 大模型向本地 8B/1.5B 小模型的 SFT（监督微调）打好资产基础。
 
 ### 2.6 Agent Workflow 路由
 
@@ -397,6 +405,14 @@ const productConsult = new WorkflowGraph<ConsultState>()
 | 输出 | 承诺合规检查 | "保证退全款"等未授权承诺拦截 |
 
 触发时通过 `EventBus.publish('guardrail:blocked')` 广播，AlertSubscriber 记录告警。
+
+### 2.8 鲁棒性与上下文保护机制 (Robustness & Context Preservation)
+
+在真实的对话场景中，用户的意图经常会发生跳跃或语义降级（例如上一句“想买某童装”，下一句直接跳到“身高130cm”）。为保证 Agent 稳定性与多轮状态一致性，系统引入了运行时上下文保护机制：
+
+1. **上下文意图重估 (Intent Re-evaluation)**：当用户进行画像纠正时，单轮意图识别可能会将其判定为 `general`。系统会自动回溯历史对话，如果发现最近讨论过具体商品，则**强制将意图重估为 `product_consult`**，并在内部级联商品 ID，保证规格推荐流程不断链。
+2. **基于商品的隐式角色推断 (Implicit Role Switching)**：不完全依赖用户显式声明（如“给孩子买”）。系统会解析当前或历史涉及商品的 `targetAudience`（受众群体）。当发现目标商品属于童装或特定性别时，即使未检测到 `role_switch` 信号，系统也会**自动推断并静默切换当前 `activeRole`**（如 `child`），并确保随后收集到的画像数据精准存入该角色的独立档案。
+3. **大模型幻觉后处理层 (Output Sanitization)**：由于推荐是由系统后台精准计算并追加的，为防止 LLM 自身输出“我目前无法为您推荐”等防御性废话，或自行编造规格产生冲突，系统在最终组装回复前，会主动通过正则清洗 LLM 原始输出中的伪推荐文案，确保规格推荐权完全收敛在系统的覆盖率算法层。
 
 
 ---

@@ -30,7 +30,7 @@
 | **模型槽位** | 标准化接口支持 8B/72B 热切换，cockatiel 断路器/重试/超时，自动 fallback |
 | **Workflow 路由** | 声明式图结构（LangGraph 模式），内置商品咨询/售后/物流/投诉 4 个 Workflow |
 | **安全护栏** | 输入层（注入检测）+ 执行层（权限白名单）+ 输出层（PII 脱敏 + 承诺合规） |
-| **数据飞轮** | Trace 采集 → 评估器 → 根因归因 → 旋钮调优 → A/B 统计检验 → 回流 |
+| **数据飞轮 (2.0)** | OTel 标准 Trace (Langfuse) → LLM-as-a-Judge 批处理打分 → 动态 Few-shot RAG 注入 → A/B 统计检验闭环 |
 | **可观测性** | Prometheus 指标 + OTel 自动插桩 + Streamlit Dashboard + 配置回滚 |
 | **冷启动策略** | 四级渐进式：零画像兜底 → 主动探索 → 渐进积累 → 成熟画像 |
 

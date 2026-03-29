@@ -129,28 +129,10 @@ export function arbitrate(existingConfidence: number, incoming: PreferenceSignal
 
 告别盲目的 Prompt 修改，将迭代建立在“度量与归因”之上，实现 **Analyze → Measure → Improve** 工业级闭环。
 
-### 3.1 度量采集层 (Trace & Measure)
-- **隐式与显式触发**：在 `Agent` 中，如果检测到用户直接覆盖了推荐 (`spec_rejected`)，会当场打包当前画像、意图和匹配覆盖率形成 `BadCaseTrace`，并经 `BadCaseCollector` 记录；同时前端 UI 的点踩 (`dislike`) 接口也会通过读取最新 Trace 追加 BadCase。
-
-```typescript
-// src/application/agent.ts (采集埋点埋入在对话主循环中)
-if (outcome === 'spec_rejected' && this.deps.badcaseCollector) {
-  const trace = {
-    promptVersion: 'current',
-    profileSnapshot: Object.assign({}, profile),
-    profileCompleteness: profile.getCompleteness(),
-    coldStartStage: profile.getColdStartStage(),
-    specMatchResult: matchResultDetail, // 记录覆盖率算法计算的每一项得分
-    intentResult,
-  };
-  const bc = this.deps.badcaseCollector.collect('spec_override', ..., trace);
-  // 通过 EventBus 抛出事件，唤醒下游分析管线
-  eventBus.publish(createEvent('badcase:detected', { badcaseId: bc.id }, sessionId));
-}
-```
-
-- **量化评估**：`SpecRecommendationEvaluator` 统计推荐总数、首次接受率、覆盖率算法命中率等四维指标，指标下滑超过 5% 时亦可触发飞轮。
-- **数据蒸馏**：`DataDistillationSubscriber` 对落盘数据进行 PII 脱敏处理，为后续微调 (SFT) 提供高质量对齐数据。
+### 3.1 度量采集层 (Trace & Measure: OTel & LLM-as-a-Judge)
+- **标准化 Trace 接入**：通过 `OpenTelemetrySubscriber`，彻底拥抱 Langfuse/Phoenix 等开源标准协议，将耗时、Token 消耗、工具调用链路全量上报至专门的可观测面板，无需重复造轮子。
+- **隐式与显式触发**：在 `Agent` 中，如果检测到用户直接覆盖了推荐 (`spec_rejected`)，会当场打包当前画像、意图和匹配覆盖率形成 `BadCaseTrace`，并经 `BadCaseCollector` 记录；同时前端 UI 的点踩 (`dislike`) 接口也会追加反馈并绑定到 Langfuse 的 Session Trace 上。
+- **自动评估 (LLM-as-a-Judge)**：不同于仅统计“接受率”这种滞后指标，引入后台批处理 `SpecRecommendationEvaluator`，利用大模型对线上 10% 的会话抽样进行“多维软性打分”（如回答同理心、有无越界承诺、引导性），这让飞轮能在没有用户投诉的情况下主动发现问题。
 
 ### 3.2 诊断分析层 (Analyze)
 一旦 `BadCaseCollector` 累积满批次，触发 `badcase:detected` 事件，`AutoPromptSubscriber` 便开始流水线作业：
@@ -178,40 +160,10 @@ export function diagnoseFailureModes(trace: BadCaseTrace, signal: BadCaseSignal)
 
 - **聚类分析 (`BadCaseAnalyzer`)**：将这批 BadCase 按 `FailureMode` 进行聚类，找出当前的“Top Cluster (首要问题)”。
 
-### 3.3 调优反馈层 (Improve)
+### 3.3 调优反馈层 (Improve: Params & Few-Shot RAG)
 - **参数推荐 (`TuningAdvisor`)**：针对 Top Cluster 给出参数级调优建议。例如，若 `presentation_issue` (推荐对了但用户不接受) 占比高，说明解释话术或信心不足，Advisor 会建议将 `MIN_RECOMMEND_CONFIDENCE` 阈值调高 0.1。
-
-```typescript
-// src/application/services/data-flywheel/tuning-advisor.ts
-export class TuningAdvisor {
-  recommend(topCluster: FailureModeCluster): TuningRecommendation | null {
-    const { mode, percentage } = topCluster;
-    const confidence = percentage > 30 ? 'high' : percentage > 15 ? 'medium' : 'low';
-
-    switch (mode) {
-      case 'cold_start_insufficient':
-        return {
-          knob: 'COMPLETENESS_THRESHOLDS.warm',
-          currentValue: 0.3,
-          suggestedValue: 0.2, // 建议降低冷启动阈值边界
-          reason: `${percentage}% 的 BadCase 来自冷启动用户，建议放宽推荐门槛`,
-          confidence,
-        };
-      case 'presentation_issue':
-        const current = this.knobs['MIN_RECOMMEND_CONFIDENCE'].getValue();
-        return {
-          knob: 'MIN_RECOMMEND_CONFIDENCE',
-          suggestedValue: Math.min(0.9, current + 0.1), // 建议调高保守度
-          reason: `用户多次拒绝正确的推荐结论，应提升置信度要求或修改话术`,
-          confidence,
-        };
-      // ...其他诊断分支
-    }
-  }
-}
-```
-
-- **热更新生效 (`ConfigWatchSubscriber`)**：Advisor 给出的高置信度数值型/布尔型建议，会由 `ConfigWatchSubscriber` 直接应用并广播到全局，各相关服务（如推理引擎、规则匹配引擎）即刻采用新参数，完成飞轮运转。
+- **动态 Few-Shot 注入**：结合 LLM-Judge 找出的高分黄金用例存入 ChromaDB 向量库，Agent 推理时将最近的相似成功案例抽取放入 System Prompt（必须经过严格 A/B 测试验证有效性后才全量），这比调参更能有效改变模型的“口吻与推理逻辑”。
+- **热更新生效 (`ConfigWatchSubscriber`)**：Advisor 给出的高置信度数值型建议，会由 `ConfigWatchSubscriber` 直接应用并广播到全局。
 
 ---
 
