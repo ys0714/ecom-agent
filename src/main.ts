@@ -101,6 +101,7 @@ const agent = new Agent({
   segmentCompressor,
   slidingWindowSize: config.business.slidingWindowSize,
   vectorStore: vs,
+  badcaseCollector,
 });
 
 // 创建订阅者实例（需要保留引用以传递给 server）
@@ -129,6 +130,7 @@ const server = buildServer({
   eventBus,
   redis,
   llm: llmClient,
+  badcaseCollector,
 });
 
   server.listen({ port: config.server.port, host: '0.0.0.0' }).then((address: string) => {

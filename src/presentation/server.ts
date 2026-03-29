@@ -7,6 +7,7 @@ import { SessionManager } from '../application/services/session-manager.js';
 import type { MetricsSubscriber } from '../application/subscribers/metrics-subscriber.js';
 import type { ConfigWatchSubscriber } from '../application/subscribers/config-watch-subscriber.js';
 import type { AutoPromptSubscriber } from '../application/subscribers/auto-prompt-subscriber.js';
+import type { BadCaseCollector } from '../application/services/data-flywheel/badcase-collector.js';
 import type { RedisClient } from '../infra/adapters/redis.js';
 import type { LLMClient } from '../infra/adapters/llm.js';
 import type { AppConfig } from '../infra/config.js';
@@ -30,6 +31,7 @@ export interface ServerDeps {
   redis?: RedisClient;
   llm?: LLMClient;
   eventBus?: import('../domain/event-bus.js').InMemoryEventBus;
+  badcaseCollector?: BadCaseCollector;
 }
 
 export function buildServer(deps: ServerDeps): ReturnType<typeof Fastify>;
@@ -113,7 +115,7 @@ export function buildServer(
     };
   });
 
-  registerConversationRoutes(app, deps.agent, deps.profileStore, deps.profileProvider, sessMgr, bus, deps.sessionProfileStore);
+  registerConversationRoutes(app, deps.agent, deps.profileStore, deps.profileProvider, sessMgr, bus, deps.sessionProfileStore, deps.badcaseCollector);
   registerProfileRoutes(app, deps.profileStore, deps.profileProvider);
   registerAdminRoutes(app, deps.configWatch, deps.autoPrompt);
   registerMetricsRoutes(app, deps.metricsSubscriber);

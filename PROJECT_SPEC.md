@@ -236,7 +236,7 @@ function arbitrate(existing: number, incoming: PreferenceSignal): 'accept' | 'me
   - **滑动窗口**：最近 K 轮对话保留完整消息文本。
   - **分段压缩（Compaction）**：由 `SegmentCompressor` 处理，溢出滑动窗口的历史消息会被压缩为精简的结构化摘要，以高信息密度取代原始 Token。
 
-**压缩段数据结构与索引 (OpenClaw 化结构)**：
+**压缩段数据结构与索引**：
 ```typescript
 interface CompressedSegment {
   segmentIndex: number;
@@ -397,6 +397,8 @@ interface BadCaseTrace {
 ```
 
 **触发机制**：
+- **隐式信号触发**：当 `Agent` 识别到用户的拒绝偏好 (`explicit_override`) 时，除了记录评估指标外，通过 `EventBus` 发出 `badcase:detected` 事件。
+- **显式信号触发**：在 UI 侧新增 `POST /api/conversation/:sessionId/feedback` 显式反馈接口（点赞/点踩），点踩时记录 `user_rejection` 信号。
 - **指标驱动**：评估器检测到推荐准确率周环比下降 > 5% 时自动触发
 - **定时触发**：每周强制运行一次飞轮分析，即使指标稳定
 - **手动触发**：`POST /admin/flywheel/trigger`

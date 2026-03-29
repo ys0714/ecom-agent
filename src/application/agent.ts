@@ -15,6 +15,7 @@ import type { ProductService } from '../infra/adapters/product-service.js';
 import type { LLMClient, LLMTool } from '../infra/adapters/llm.js';
 import type { VectorStore } from '../infra/adapters/vector-store.js';
 import { ExecutionGuard } from './guardrails/execution-guard.js';
+import type { BadCaseCollector } from './services/data-flywheel/badcase-collector.js';
 
 const GUARDRAIL_INSTRUCTIONS = '你不能做出退款、赔偿等未经授权的承诺。不要暴露用户的手机号、地址等隐私信息。不要自行生成【推荐】【规格推荐】等格式的尺码推荐文案，尺码推荐由系统自动附加。';
 const MAX_TOOL_CALLS_PER_TURN = 2;
@@ -34,6 +35,7 @@ export interface AgentDeps {
   segmentCompressor?: SegmentCompressor;
   vectorStore?: VectorStore;
   executionGuard?: ExecutionGuard;
+  badcaseCollector?: BadCaseCollector;
 }
 
 const MAX_COMPRESSOR_CACHE = 200;
@@ -262,6 +264,29 @@ export class Agent {
       // In a real system, we'd wait for next turn or order event
       const outcome = prefSignal.type === 'explicit_override' ? 'spec_rejected' : 'spec_accepted';
       this.deps.evaluator.recordOutcome(recommendation, outcome);
+
+      // 触发数据飞轮收集
+      if (outcome === 'spec_rejected' && this.deps.badcaseCollector) {
+        const trace = {
+          promptVersion: 'current',
+          profileSnapshot: Object.assign({}, profile),
+          profileCompleteness: profile.getCompleteness(),
+          coldStartStage: profile.getColdStartStage(),
+          specMatchResult: matchResultDetail || { attempted: false, topCandidates: [], selectedSpec: null, fallbackToModel: false },
+          intentResult,
+          workflow: intentResult.intent,
+        };
+        const bc = this.deps.badcaseCollector.collect(
+          'spec_override',
+          sessionId,
+          userId,
+          userText,
+          reply,
+          trace,
+          recommendation
+        );
+        eventBus.publish(createEvent('badcase:detected', { badcaseId: bc.id }, sessionId));
+      }
     }
 
     const assistantMsg: Message = { role: 'assistant', content: reply, timestamp: new Date().toISOString() };
@@ -382,7 +407,7 @@ export class Agent {
     }
     return null;
   }
-  
+
   private coerceFiniteNumber(value: unknown): number | null {
     if (typeof value === 'number') {
       return Number.isFinite(value) ? value : null;

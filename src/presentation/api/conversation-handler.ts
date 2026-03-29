@@ -7,6 +7,7 @@ import { SessionManager } from '../../application/services/session-manager.js';
 import { UserProfileEntity } from '../../domain/entities/user-profile.entity.js';
 import { InputGuard } from '../../application/guardrails/input-guard.js';
 import { OutputGuard } from '../../application/guardrails/output-guard.js';
+import type { BadCaseCollector } from '../../application/services/data-flywheel/badcase-collector.js';
 
 import { InMemoryEventBus } from '../../domain/event-bus.js';
 
@@ -20,7 +21,8 @@ export function registerConversationRoutes(
   profileProvider: ProfileProvider,
   sessionManager: SessionManager,
   eventBus: InMemoryEventBus,
-  sessionProfileStore: SessionProfileStore
+  sessionProfileStore: SessionProfileStore,
+  badcaseCollector?: BadCaseCollector
 ) {
   app.post<{
     Body: { sessionId: string; userId: string; message: string };
@@ -177,6 +179,50 @@ export function registerConversationRoutes(
       sessionId,
       payload: { userId, feedbackType: type, reason: reason ?? null }
     });
+
+    if (type === 'dislike' && badcaseCollector) {
+      try {
+        const events = await sessionManager.loadEventLog(sessionId);
+        const reversedEvents = [...events].reverse();
+        
+        const lastTraceEvent = reversedEvents.find(e => e.type === 'turn:trace');
+        const lastUserMsg = reversedEvents.find(e => e.type === 'message:user');
+        const lastAssistantMsg = reversedEvents.find(e => e.type === 'message:assistant');
+
+        if (lastTraceEvent && lastTraceEvent.payload) {
+          const p = lastTraceEvent.payload as any;
+          const userMsgContent = (lastUserMsg?.payload?.content as string) || 'unknown';
+          const assistantMsgContent = (lastAssistantMsg?.payload?.content as string) || 'unknown';
+          
+          const bc = badcaseCollector.collect(
+            'user_rejection',
+            sessionId,
+            userId,
+            userMsgContent,
+            assistantMsgContent,
+            {
+              promptVersion: 'current',
+              profileSnapshot: p.profile || null,
+              profileCompleteness: p.profile?.completeness ?? 0.5,
+              coldStartStage: p.profile?.coldStartStage ?? 'warm',
+              specMatchResult: p.recommendation?.matchDetail || { attempted: false, topCandidates: [], selectedSpec: null, fallbackToModel: false },
+              intentResult: { intent: p.intent || 'general', confidence: 1.0, entities: {} },
+              workflow: p.intent || 'general'
+            },
+            p.recommendation
+          );
+          
+          eventBus.publish({
+            type: 'badcase:detected',
+            timestamp: new Date().toISOString(),
+            sessionId,
+            payload: { badcaseId: bc.id }
+          });
+        }
+      } catch (err) {
+        console.error(`[Feedback API] Failed to collect badcase for session ${sessionId}:`, err);
+      }
+    }
 
     return reply.send({ success: true });
   });
