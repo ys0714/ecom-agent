@@ -57,10 +57,22 @@ interface CompressedSegment {
 2. **会话画像 (`SessionProfileStore`)**：附带 24 小时 TTL 的临时 Redis 缓存，记录本会话中的特定情境（如角色切换 `role_switch`）。
 3. **运行时合并**：每次 Request 进来，内存中的 `UserProfileEntity` 会执行 `mergeSessionProfile`，使当次推荐享有完整上下文，而持久化时互不干扰。
 
-### 2.2 混合路由与偏好仲裁 (Confidence Arbitration)
+### 2.2 混合路由与置信度仲裁 (Confidence Arbitration)
 用户在对话中提到的“我要宽松点”、“我朋友170cm”等属于偏好信号 (`PreferenceSignal`)。
-- **混合路由检测**：优先走基于正则与关键词的 **规则快速路径 (0ms)** 捕获高确定性信号；失败时则走 **LLM 深度路径 (~200ms)** 进行模糊语义理解。
-- **置信度仲裁**：不同来源的数据有不同置信度（如：订单历史 0.9，口头修改 0.7，隐式偏好 0.6）。`ConfidenceArbitrator` 会对比现有数据的置信度与新信号，决定是 **覆盖 (accept)**、**合并 (merge)** 还是 **忽略 (ignore)**。
+系统如何判断“是听用户的口头表达，还是坚持历史画像数据”？这里引入了**混合检测**与**数学仲裁**机制：
+
+1. **混合检测路由 (PreferenceDetector)**：
+   - 优先走基于正则与关键词的 **规则快速路径 (0ms)**，捕获高确定性信号（如“我身高165cm”）。
+   - 如果未命中，则走 **LLM 深度路径 (~200ms)**，理解隐式的模糊语义（如“这件感觉有点小”）。LLM 会根据语境给出一个浮点数作为该信号的“语义置信度”。
+
+2. **置信度仲裁器 (ConfidenceArbitrator)**：
+   - 不同的底层数据有其“基准置信度”（例如：购买过 5 单以上置信度 0.9，1 单置信度 0.6）。
+   - 仲裁器会将**“当前画像的置信度 (existingConfidence)”**与**“传入信号的置信度 (incoming.confidence)”**进行数学比对：
+     - 若信号类型为 `explicit_override`（如“我就要 L 码”），则**直接覆盖 (accept)**，置信度设为 1.0。
+     - 若 `incoming.confidence > existing * 1.2`，表示新信号显著强于历史画像，做出**接受 (accept)**决策。
+     - 若 `incoming.confidence > existing * 0.8`，表示两者强度接近，做出**合并 (merge)**决策（如取平均值或交集）。
+     - 否则，视为新信号属于随意发散，做出**忽略 (ignore)**决策，继续使用原画像。
+   - **闭环强化**：如果用户的当次采纳被事后下单印证，其对应维度的置信度会被 `adjustConfidence` 奖励 (`+0.1`)；若遭到拒绝则惩罚 (`-0.1`)。
 
 ### 2.3 冷启动策略 (Cold Start Manager)
 画像具备 `Completeness` (0~1) 和 `ColdStartStage` (cold/warm/hot) 属性。针对冷启动用户，`ColdStartManager` 会动态生成引导提问（如“请问您的身高体重大概是多少？”），并将其作为 `coldStartInstruction` 注入到 System Prompt 的工作记忆层，诱导用户自然补全画像。
