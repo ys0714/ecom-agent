@@ -274,18 +274,17 @@ interface CompressedSegment {
 
 ```typescript
 const messages: Message[] = [
-  // 1. Bootstrap Layer (免疫压缩)
-  { role: 'system', content: `<SOUL>${GUARDRAILS}</SOUL>\n<USER_PROFILE>${profile.summarize()}</USER_PROFILE>` },
+  { role: 'system', content: [
+    // 1. Bootstrap Layer (免疫压缩)
+    `<SOUL>${GUARDRAILS}</SOUL>\n<USER_PROFILE>${profile.summarize()}</USER_PROFILE>`,
+    // 2. Conversation History Layer
+    compressor.getSummaryForPrompt(), // 早期对话压缩为 factSlots
+    // 3. Tool Results Layer (按需检索的工作记忆)
+    `<PRODUCT_INFO>${productDetail}</PRODUCT_INFO>\n<FEW_SHOT>${fewShotExamples}</FEW_SHOT>`
+  ].join('\n\n') },
   
-  // 2. Conversation History Layer
-  ...compressor.getSummaryAsMessages(), // 早期对话摘要
-  ...slidingWindow,                      // 最近 K 轮完整对话
-  
-  // 3. Tool Results Layer (按需检索的工作记忆)
-  { role: 'system', content: `<PRODUCT_INFO>${productDetail}</PRODUCT_INFO>\n<FEW_SHOT>${fewShotExamples}</FEW_SHOT>` },
-  
-  // 4. Current Message Layer
-  { role: 'user', content: userText }
+  // 4. Current Message Window (滑动窗口)
+  ...slidingWindow // 最近 K 轮完整对话（包含当前 userText）
 ];
 ```
 
@@ -502,6 +501,14 @@ const productConsult = new WorkflowGraph<ConsultState>()
 | 输出 | 承诺合规检查 | "保证退全款"等未授权承诺拦截 |
 
 触发时通过 `EventBus.publish('guardrail:blocked')` 广播，AlertSubscriber 记录告警。
+
+### 2.8 鲁棒性与上下文保护机制 (Robustness & Context Preservation)
+
+在真实的对话场景中，用户的意图经常会发生跳跃或语义降级（例如上一句“想买某童装”，下一句直接跳到“身高130cm”）。为保证 Agent 稳定性与多轮状态一致性，系统引入了运行时上下文保护机制：
+
+1. **上下文意图重估 (Intent Re-evaluation)**：当用户进行画像纠正时，单轮意图识别可能会将其判定为 `general`。系统会自动回溯历史对话，如果发现最近讨论过具体商品，则**强制将意图重估为 `product_consult`**，并在内部级联商品 ID，保证规格推荐流程不断链。
+2. **基于商品的隐式角色推断 (Implicit Role Switching)**：不完全依赖用户显式声明（如“给孩子买”）。系统会解析当前或历史涉及商品的 `targetAudience`（受众群体）。当发现目标商品属于童装或特定性别时，即使未检测到 `role_switch` 信号，系统也会**自动推断并静默切换当前 `activeRole`**（如 `child`），并确保随后收集到的画像数据精准存入该角色的独立档案。
+3. **大模型幻觉后处理层 (Output Sanitization)**：由于推荐是由系统后台精准计算并追加的，为防止 LLM 自身输出“我目前无法为您推荐”等防御性废话，或自行编造规格产生冲突，系统在最终组装回复前，会主动通过正则清洗 LLM 原始输出中的伪推荐文案，确保规格推荐权完全收敛在系统的覆盖率算法层。
 
 
 ---

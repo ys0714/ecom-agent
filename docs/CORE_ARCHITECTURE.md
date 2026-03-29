@@ -29,7 +29,7 @@ private buildSystemPrompt(...) {
 // 在拼装入给大模型的 messages 数组时：
 const messages: Message[] = [
   { role: 'system', content: systemPrompt }, // 包含了 Layer 1~3
-  ...window,                                 // 4. Current Message Layer (滑动窗口内的最新对话)
+  ...window,                                 // 4. Current Message Window (滑动窗口内的最新对话，包含 L4 本身)
 ];
 ```
 
@@ -37,12 +37,13 @@ const messages: Message[] = [
    - **定位**：Prompt 最顶端，每次会话强制加载，绝不被压缩或截断。
    - **内容**：系统的安全护栏 (Guardrails 约束) 与 用户画像核心数据 (`profile.summarizeForPrompt()`)。
 2. **Layer 2: Conversation History（受压缩的历史层）**
-   - **机制**：采用 **滑动窗口 + 分段压缩**。最近 K 轮对话保留完整原文，溢出窗口的历史消息则交给 `SegmentCompressor` 处理。
+   - **机制**：由大模型自动管理的压缩摘要。当历史对话较长时，交给 `SegmentCompressor` 处理，提取结构化 `factSlots` 供大模型参考。
 3. **Layer 3: Tool Results（按需检索的工作记忆层）**
    - **定位**：动态注入的外部知识，用完即抛，避免污染主上下文。
    - **内容**：商品查询结果、RAG 动态召回的 Few-shot 案例、以及通过 `recall_history` 工具检索回来的历史对话原文。
-4. **Layer 4: Current Message（当前消息层）**
-   - **定位**：Prompt 底部，注意力机制最集中的区域，放置用户最新输入。
+4. **Layer 4: Current Message Window（当前对话窗口层）**
+   - **定位**：Prompt 底部，注意力机制最集中的区域，也是 `messages` 数组的尾部。
+   - **内容**：**最近 K 轮**（通常是最近 3-5 轮）的完整、未经任何压缩的原始对话记录，包含用户最新的输入和系统的即时多轮追问。滑动出这个窗口的消息才会被送入 Layer 2 压缩。
 
 ### 1.2 OpenClaw 化动态压缩与事实提取
 旧版的“自然语言摘要”存在信息丢失的通病。在升级后，`SegmentCompressor` 输出结构化的 `factSlots`：
@@ -116,6 +117,11 @@ export function arbitrate(existingConfidence: number, incoming: PreferenceSignal
 
 ### 2.3 冷启动策略 (Cold Start Manager)
 画像具备 `Completeness` (0~1) 和 `ColdStartStage` (cold/warm/hot) 属性。针对冷启动用户，`ColdStartManager` 会动态生成引导提问（如“请问您的身高体重大概是多少？”），并将其作为 `coldStartInstruction` 注入到 System Prompt 的工作记忆层，诱导用户自然补全画像。
+
+### 2.4 鲁棒性与角色一致性保护 (Context & Role Protection)
+对话中经常发生意图跳跃或语义缺失（例如：“想买p301” -> “身高130cm”）。为防止画像引擎因为失去上下文而把数据写错地方，系统实施了两级保护：
+1. **隐式角色推断 (Implicit Role Inference)**：系统会跨轮次扫描当前及历史提到的商品。如果商品 `p301` 属童装（`targetAudience: 'child'`），即便用户未明确说“给孩子买”，系统也会静默将 `activeRole` 绑定为 `child`。
+2. **意图重估 (Intent Re-evaluation)**：当用户在提供画像数据（触发 `profile_correction`）时，如果意图路由器将其误判为普通闲聊 (`general`)，系统会向后追溯。若发现近期存在商品讨论，会强制将意图扭转回 `product_consult`，并在内部向用户文本自动挂载该商品 ID 补全上下文，确保推荐引擎与画像引擎能针对“正确的角色”和“正确的商品”进行准确的规格匹配和档案写入。
 
 ---
 
